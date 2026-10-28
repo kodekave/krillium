@@ -1,0 +1,4 @@
+id,name,organiser,url,city,country,start_date,end_date,source_url,fit,public_names,timing,distance
+bme,BME Symposium Test,BME,https://example.test/bme,Berlin,DE,2026-11-18,2026-11-19,https://example.test/bme/speakers,5,5,5,5
+orl,SSOW Orlando Test,SSON,https://example.test/orl,Orlando,US,2027-03-08,2027-03-11,https://example.test/orl/speakers,4,4,3,4
+tbc,Unannounced Event,Org,,Nowhere,,,,,3,2,3,3

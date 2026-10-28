@@ -1,0 +1,9 @@
+event_id,name,title,company,domain,email,email_status,linkedin_url,role,fit,source_url
+bme,Ada Buyer,CFO,Acme Corp,acme.test,ada@acme.test,Verified,,Speaker,35,https://example.test/bme/ada
+orl,Ada Buyer,CFO,Acme Corp,acme.test,ada@acme.test,Verified,,Moderator,35,https://example.test/orl/ada
+bme,Sam Siemens,Head of Order to Cash,Siemens AG,,,,https://linkedin.test/in/sam,Speaker,30,https://example.test/bme/sam
+orl,Sam Siemens,Head of Order to Cash,Siemens,,,,https://linkedin.test/in/sam,Attendee,30,https://example.test/orl/sam
+bme,Prof. Dr. Jörg Müller,Geschäftsführer,Müller Logistik GmbH,mueller-logistik.test,joerg@mueller-logistik.test,Verified,,Keynote,36,https://example.test/bme/mueller
+orl,Dana Mismatch,Leiter Einkauf,City Supply,citysupply.test,dana@cef.test,Verified,,Speaker,30,https://example.test/orl/dana
+orl,Vera Vendor,CEO,Vendor Co,vendor.test,vera@vendor.test,Verified,,Speaker,35,https://example.test/orl/vera
+bme,,,Account Only Inc,aoi.test,,,,Company only,25,https://example.test/bme/attendees
