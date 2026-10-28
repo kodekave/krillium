@@ -11,3 +11,13 @@ export function error(status, message, extra = {}) {
     headers: { 'content-type': 'application/json' },
   });
 }
+
+export async function readJson(request) {
+  try {
+    const body = await request.json();
+    if (body && typeof body === 'object' && !Array.isArray(body)) return body;
+  } catch {
+    // fall through to the 400 below
+  }
+  throw error(400, 'body must be a JSON object');
+}

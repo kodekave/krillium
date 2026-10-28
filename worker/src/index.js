@@ -1,13 +1,20 @@
 import { AuthError, requireUser, signSession, verifyGoogleIdToken } from './auth.js';
 import { corsHeaders } from './cors.js';
 import { error, json } from './http.js';
+import { ask } from './routes/ask.js';
 import { eventDetail, feed, icp, radar } from './routes/read.js';
+import { getPrefs, postDecision, putIcp, putPref } from './routes/write.js';
 
 const ROUTES = [
   ['GET', /^\/api\/radar$/, radar],
   ['GET', /^\/api\/events\/([^/]+)$/, eventDetail],
   ['GET', /^\/api\/feed$/, feed],
   ['GET', /^\/api\/icp$/, icp],
+  ['PUT', /^\/api\/icp$/, putIcp],
+  ['POST', /^\/api\/decisions$/, postDecision],
+  ['GET', /^\/api\/prefs$/, getPrefs],
+  ['PUT', /^\/api\/prefs$/, putPref],
+  ['GET', /^\/api\/ask$/, ask],
 ];
 
 async function authGoogle(request, env, getJwks) {

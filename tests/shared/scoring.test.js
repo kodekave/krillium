@@ -124,3 +124,13 @@ describe('validateConfig', () => {
     expect(validateConfig(bad).ok).toBe(false);
   });
 });
+
+describe('validateConfig required tables', () => {
+  it.each(['density', 'persona', 'eventRole', 'contact'])('rejects a config with no %s table', (table) => {
+    const bad = structuredClone(cfg);
+    delete bad[table];
+    const result = validateConfig(bad);
+    expect(result.ok).toBe(false);
+    expect(result.errors.join(' ')).toContain(table);
+  });
+});

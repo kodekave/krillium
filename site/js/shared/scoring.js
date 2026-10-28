@@ -79,6 +79,9 @@ export function validateConfig(cfg) {
   const t = cfg.thresholds ?? {};
   if (!(t.consider < t.mustAttend)) errors.push('consider threshold must be below must-attend');
   if (!(t.tierB < t.tierA)) errors.push('tier B cut-off must be below tier A');
+  for (const table of ['density', 'persona', 'eventRole', 'contact']) {
+    if (!cfg[table] || typeof cfg[table] !== 'object') errors.push(`${table} table is required`);
+  }
   nonNegativeNumbers(cfg.density, 'density', errors);
   nonNegativeNumbers(cfg.persona, 'persona', errors);
   nonNegativeNumbers(cfg.eventRole, 'eventRole', errors);
