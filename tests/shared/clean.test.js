@@ -40,7 +40,7 @@ describe('classifyPersona', () => {
   });
 
   it('sends unclear titles to the reviewer as null', () => {
-    expect(classifyPersona('Prof. Dr. Moritz Schularick, Präsident')).toBeNull();
+    expect(classifyPersona('Prof. Dr. Erika Mustermann, Präsidentin')).toBeNull();
     expect(classifyPersona('Senior Intern')).toBeNull();
   });
 });

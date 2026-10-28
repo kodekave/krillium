@@ -43,14 +43,15 @@ Edit `site/config.js`: set `apiBase` to the Worker URL printed by `wrangler depl
 npx wrangler d1 execute gtm-radar --remote --command "INSERT INTO users (email, name, role) VALUES ('you@yourcompany.com', 'Your Name', 'admin')"
 ```
 
-Repeat for each teammate. Only these Google accounts can sign in. Set `active` to 0 to remove someone.
+Repeat for each teammate. Only these Google accounts can sign in (email matching ignores case). To remove someone, set `active` to 0: it blocks their existing sessions on their next request, not after eight hours.
 
 ## 6. Load the case-study data (you)
 
 Export the Sheet tabs as CSV with these headers (lower case, any column order):
 
 - events: `id,name,organiser,url,city,country,lat,lon,start_date,end_date,source_url,fit,public_names,timing,distance` (lat/lon may be blank for known cities; `last_checked` optional)
-- leads: `event_id,name,title,company,domain,email,email_status,linkedin_url,role,fit,source_url` (a row with no `name` is an account-only company)
+- leads: `event_id,name,title,company,domain,email,email_status,linkedin_url,role,fit,source_url` (a row with no `name` is an account-only company; a row with no `company` is skipped with a warning). `email_status` counts as verified only when it is exactly `Verified` or `valid` (any case); anything else, including `Unverified`, counts as not verified.
+- Dates must be `YYYY-MM-DD`. Any other format (for example `11/18/2026`) is left blank with a warning, so check the warnings the import prints.
 - vendors: `name,domain,event_id`
 
 ```bash
@@ -58,7 +59,7 @@ node scripts/import-sheet.mjs --events events.csv --leads leads.csv --vendors ve
 npx wrangler d1 execute gtm-radar --remote --file import.sql
 ```
 
-The import is safe to run again. `data/` and `import.sql` are git-ignored: keep lead data out of the repo.
+Running the import again with the same files changes nothing. If you correct the Sheet and re-import (for example adding a missing company domain or email), look at the Events drawers for a duplicated company afterwards: rows removed from the Sheet are never deleted, and a company first imported without a domain can appear twice. `/data/` and `import.sql` are git-ignored: keep lead data out of the repo.
 
 ## 7. Publish the site (you)
 

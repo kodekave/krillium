@@ -8,6 +8,8 @@ import {
   statusFor,
   rankEvents,
   validateConfig,
+  leadTier,
+  countsFromLeads,
 } from '../../site/js/shared/scoring.js';
 
 const cfg = DEFAULT_CONFIG;
@@ -132,5 +134,53 @@ describe('validateConfig required tables', () => {
     const result = validateConfig(bad);
     expect(result.ok).toBe(false);
     expect(result.errors.join(' ')).toContain(table);
+  });
+});
+
+describe('lead inputs recomputed from the config', () => {
+  const leads = [
+    { fit: 35, persona: 'economic_buyer', eventRole: 'speaker', contact: 'verified_email' },
+    { fit: 30, persona: 'champion', eventRole: 'attendee', contact: 'linkedin' },
+  ];
+
+  it('derives a tier from the lead inputs', () => {
+    expect(leadTier(leads[0], cfg)).toBe('A');
+    expect(leadTier(leads[1], cfg)).toBe('B');
+  });
+
+  it('counts tiers from lead inputs', () => {
+    expect(countsFromLeads(leads, 2, cfg)).toEqual({ tierA: 1, tierB: 1, accountOnly: 2 });
+  });
+
+  it('changes counts when persona points change', () => {
+    const edited = structuredClone(cfg);
+    edited.persona.economic_buyer = 0;
+    expect(countsFromLeads(leads, 0, edited)).toEqual({ tierA: 0, tierB: 2, accountOnly: 0 });
+  });
+
+  it('changes counts when the tier A cut-off changes', () => {
+    const edited = structuredClone(cfg);
+    edited.thresholds.tierA = 96;
+    expect(countsFromLeads(leads, 0, edited).tierA).toBe(0);
+  });
+
+  it('rankEvents recomputes counts from leads when an event carries them', () => {
+    const event = { id: 'x', eventScore20: 10, leads, accountOnly: 1 };
+    const ranked = rankEvents([event], cfg)[0];
+    expect(ranked.counts).toEqual({ tierA: 1, tierB: 1, accountOnly: 1 });
+  });
+});
+
+describe('validateConfig home bases', () => {
+  it('rejects string coordinates and a non-list', () => {
+    const strings = structuredClone(cfg);
+    strings.homeBases[0].lat = '52.5';
+    expect(validateConfig(strings).ok).toBe(false);
+    const notList = structuredClone(cfg);
+    notList.homeBases = { name: 'Berlin' };
+    expect(validateConfig(notList).ok).toBe(false);
+    const nullEntry = structuredClone(cfg);
+    nullEntry.homeBases = [null];
+    expect(validateConfig(nullEntry).ok).toBe(false);
   });
 });

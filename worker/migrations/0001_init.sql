@@ -54,8 +54,8 @@ CREATE TABLE event_people (
   event_id TEXT NOT NULL REFERENCES events (id),
   person_id INTEGER NOT NULL REFERENCES people (id),
   role TEXT,
-  score INTEGER,
-  tier TEXT,
+  fit INTEGER,
+  contact TEXT,
   PRIMARY KEY (event_id, person_id)
 );
 

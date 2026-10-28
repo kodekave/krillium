@@ -87,3 +87,11 @@ describe('createApi connection state', () => {
     expect(events).toEqual(['stale', 'fresh']);
   });
 });
+
+describe('sessionEndedMessage', () => {
+  it('only claims a session ended when there was a session', async () => {
+    const { sessionEndedMessage } = await import('../../site/js/auth.js');
+    expect(sessionEndedMessage(true)).toMatch(/session ended/i);
+    expect(sessionEndedMessage(false)).toBeUndefined();
+  });
+});

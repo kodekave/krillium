@@ -1,7 +1,8 @@
 // Pure CSV-to-SQL import of the case-study Sheet tabs. One statement per line (D1 exec requirement).
 import { classifyPersona, domainMatches, normaliseCompanyName } from '../site/js/shared/clean.js';
-import { DEFAULT_CONFIG, leadScore, tierFor } from '../site/js/shared/scoring.js';
+import { DEFAULT_CONFIG } from '../site/js/shared/scoring.js';
 
+const VERIFIED = /^(verified|valid)$/i;
 const LAWFUL_BASIS = 'legitimate interest (B2B), public source';
 
 const CITY_COORDS = {
@@ -67,6 +68,7 @@ const q = (v) => {
   return `'${String(v).replace(/\r?\n/g, ' ').replace(/'/g, "''")}'`;
 };
 const num = (v) => (v === '' || v === undefined || Number.isNaN(Number(v)) ? null : Number(v));
+const ISO_DATE = /^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/;
 const slug = (s) => fold(s).replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 const cleanDomain = (d) => fold(d).replace(/^@/, '').replace(/^www\./, '');
 
@@ -89,7 +91,16 @@ function eventRole(raw, hasPerson) {
 export function buildImport({ eventsCsv, leadsCsv, vendorsCsv }, { today = new Date().toISOString().slice(0, 10) } = {}) {
   const out = [];
   const warnings = [];
-  const events = toObjects(eventsCsv).map((e) => ({ ...e, id: e.id || slug(e.name) }));
+  const events = toObjects(eventsCsv).map((e) => {
+    const event = { ...e, id: e.id || slug(e.name) };
+    for (const key of ['start_date', 'end_date']) {
+      if (event[key] && !ISO_DATE.test(event[key])) {
+        warnings.push(`event "${event.id}": unrecognised date "${event[key]}" in ${key} (use YYYY-MM-DD); left blank`);
+        event[key] = '';
+      }
+    }
+    return event;
+  });
   const eventById = new Map(events.map((e) => [fold(e.id), e]));
   const eventByName = new Map(events.map((e) => [normaliseCompanyName(e.name), e]));
   const findEvent = (ref) => eventById.get(fold(ref)) ?? eventByName.get(normaliseCompanyName(ref));
@@ -116,6 +127,10 @@ export function buildImport({ eventsCsv, leadsCsv, vendorsCsv }, { today = new D
 
   const eventCompanies = [];
   for (const v of toObjects(vendorsCsv)) {
+    if (!v.name) {
+      warnings.push(`vendor row skipped: blank company name (domain "${v.domain}")`);
+      continue;
+    }
     const company = companyFor(v.name, v.domain, 1);
     const event = v.event_id ? findEvent(v.event_id) : null;
     if (event) eventCompanies.push({ event, company, source: null });
@@ -125,11 +140,15 @@ export function buildImport({ eventsCsv, leadsCsv, vendorsCsv }, { today = new D
   const personByEmail = new Map();
   const personByLinkedin = new Map();
   const personByName = new Map();
-  const appearances = [];
+  const appearances = new Map();
   for (const row of toObjects(leadsCsv)) {
     const event = findEvent(row.event_id ?? row.event);
     if (!event) {
       warnings.push(`lead "${row.name || row.company}" skipped: unknown event "${row.event_id ?? row.event}"`);
+      continue;
+    }
+    if (!row.company) {
+      warnings.push(`lead "${row.name}" skipped: blank company name`);
       continue;
     }
     const company = companyFor(row.company, row.domain);
@@ -156,12 +175,17 @@ export function buildImport({ eventsCsv, leadsCsv, vendorsCsv }, { today = new D
 
     const role = eventRole(row.role, true);
     const contact =
-      person.email && /verif/i.test(row.email_status) ? 'verified_email' : person.linkedin ? 'linkedin' : 'none';
-    const score = leadScore(
-      { fit: num(row.fit) ?? 0, persona: person.persona, eventRole: role, contact },
-      DEFAULT_CONFIG,
-    );
-    appearances.push({ event, person, role, score, tier: tierFor(score, DEFAULT_CONFIG) });
+      person.email && VERIFIED.test(row.email_status.trim()) ? 'verified_email' : person.linkedin ? 'linkedin' : 'none';
+    const key = `${event.id}|${people.indexOf(person)}`;
+    const fit = num(row.fit) ?? 0;
+    const seen = appearances.get(key);
+    if (!seen) appearances.set(key, { event, person, role, fit, contact });
+    else {
+      // Listed twice at one event: keep the strongest role, contact and fit.
+      if (DEFAULT_CONFIG.eventRole[role] > DEFAULT_CONFIG.eventRole[seen.role]) seen.role = role;
+      if (DEFAULT_CONFIG.contact[contact] > DEFAULT_CONFIG.contact[seen.contact]) seen.contact = contact;
+      seen.fit = Math.max(seen.fit, fit);
+    }
     if (num(row.fit) === null) warnings.push(`lead "${row.name}" has no fit value; scored with 0`);
   }
 
@@ -214,9 +238,9 @@ export function buildImport({ eventsCsv, leadsCsv, vendorsCsv }, { today = new D
     }
   }
 
-  for (const a of appearances) {
+  for (const a of appearances.values()) {
     out.push(
-      `INSERT INTO event_people (event_id, person_id, role, score, tier) VALUES (${q(a.event.id)}, ${personSub(a.person)}, ${q(a.role)}, ${a.score}, ${q(a.tier)}) ON CONFLICT (event_id, person_id) DO UPDATE SET role = excluded.role, score = excluded.score, tier = excluded.tier;`,
+      `INSERT INTO event_people (event_id, person_id, role, fit, contact) VALUES (${q(a.event.id)}, ${personSub(a.person)}, ${q(a.role)}, ${a.fit}, ${q(a.contact)}) ON CONFLICT (event_id, person_id) DO UPDATE SET role = excluded.role, fit = excluded.fit, contact = excluded.contact;`,
     );
   }
   for (const ec of eventCompanies) {

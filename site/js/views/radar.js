@@ -1,21 +1,11 @@
 import { h } from '../dom.js';
-import { daysUntil, formatRange } from '../format.js';
+import { daysUntil, formatRange, monthsSpan } from '../format.js';
 import { createMap } from '../map-canvas.js';
 import { dateWindow } from '../map-geometry.js';
 
 const STATUS_LABEL = { 'must-attend': 'Must-attend', consider: 'Consider', watch: 'Watch' };
 const PRESETS = [['events', 'All events'], ['world', 'World'], ['europe', 'Europe'], ['us', 'United States']];
 const MONTH = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-
-function monthsOf(events) {
-  const dates = events.flatMap((e) => [e.startDate, e.endDate ?? e.startDate]).filter(Boolean).sort();
-  if (!dates.length) return [];
-  const [y0, m0] = dates[0].split('-').map(Number);
-  const [y1, m1] = dates[dates.length - 1].split('-').map(Number);
-  const months = [];
-  for (let y = y0, m = m0; y < y1 || (y === y1 && m <= m1); m === 12 ? ((m = 1), (y += 1)) : (m += 1)) months.push({ y, m });
-  return months;
-}
 
 const pad = (n) => String(n).padStart(2, '0');
 
@@ -148,10 +138,19 @@ export function mount(root, ctx) {
       message.replaceChildren(h('strong', {}, 'No events yet'), h('p', { class: 'muted' }, 'Import the case-study Sheet to fill the radar. DEPLOY.md lists the steps.'));
       return;
     }
-    months = monthsOf(events);
+    months = monthsSpan(events);
     range = [0, Math.max(0, months.length - 1)];
     if (!map) {
-      map = await createMap(stage, { bases: icp.ok && icp.data.homeBases?.length ? icp.data.homeBases : DEFAULT_BASES, reducedMotion: ctx.prefersReducedMotion, onSelect: (id) => ctx.openEvent(id), onHover: showCard });
+      try {
+        map = await createMap(stage, { bases: icp.ok && icp.data.homeBases?.length ? icp.data.homeBases : DEFAULT_BASES, reducedMotion: ctx.prefersReducedMotion, onSelect: (id) => ctx.openEvent(id), onHover: showCard });
+      } catch {
+        if (disposed) return;
+        message.hidden = false;
+        message.replaceChildren(h('strong', {}, 'The map could not load'), h('p', { class: 'muted' }, 'The map files did not load. Check your connection and try again.'), h('button', { type: 'button', class: 'btn btn-primary', onclick: load }, 'Try again'));
+        renderSummary(events);
+        renderRank(events);
+        return;
+      }
       if (disposed) {
         map.destroy();
         return;

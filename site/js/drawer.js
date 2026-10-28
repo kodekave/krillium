@@ -8,9 +8,18 @@ const CHOICE_LABEL = { attend: 'Attend', watch: 'Watch', skip: 'Skip' };
 const TIER_PILL = { A: 'must-attend', B: 'consider' };
 const PERSONA = { economic_buyer: 'Economic buyer', champion: 'Champion', influencer: 'Influencer' };
 
+const hostOf = (url) => {
+  try {
+    return new URL(url).hostname || url;
+  } catch {
+    return url;
+  }
+};
+
 export function mountDrawer(ctx) {
   let opener = null;
   let current = null;
+  let hideTimer = 0;
   const backdrop = h('div', { class: 'drawer-backdrop', hidden: true, onclick: () => close() });
   const panel = h('aside', { class: 'drawer glass-strong', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Event details', hidden: true, tabindex: '-1' });
   document.body.append(backdrop, panel);
@@ -30,7 +39,8 @@ export function mountDrawer(ctx) {
     panel.classList.remove('is-open');
     backdrop.classList.remove('is-open');
     document.removeEventListener('keydown', onKey);
-    setTimeout(() => { panel.hidden = true; backdrop.hidden = true; }, 280);
+    clearTimeout(hideTimer);
+    hideTimer = setTimeout(() => { panel.hidden = true; backdrop.hidden = true; }, 280);
     current = null;
     opener?.focus?.();
   }
@@ -38,6 +48,7 @@ export function mountDrawer(ctx) {
   const closeBtn = () => h('button', { type: 'button', class: 'drawer-close', 'aria-label': 'Close details', onclick: close }, '×');
 
   async function open(id) {
+    clearTimeout(hideTimer);
     opener = document.activeElement;
     current = id;
     panel.hidden = false;
@@ -73,7 +84,7 @@ export function mountDrawer(ctx) {
         e.accounts.length ? h('table', { class: 'mini' }, h('tbody', {}, e.accounts.map((a) => h('tr', {},
           h('td', {}, h('strong', {}, a.company || 'Unknown company'), a.person ? h('div', { class: 'muted small' }, `${a.person}${a.title ? `, ${a.title}` : ''}`) : h('div', { class: 'muted small' }, 'Company only, no named person yet')),
           h('td', {}, a.tier ? h('span', { class: `pill pill-${TIER_PILL[a.tier] ?? 'watch'}` }, `Tier ${a.tier}`) : null, a.persona ? h('div', { class: 'muted small' }, PERSONA[a.persona] ?? a.persona) : null))))) : h('p', { class: 'muted' }, 'No ICP-matching people are public yet.')),
-      h('section', {}, h('h3', {}, 'Sources'), h('ul', { class: 'plain' }, e.sources.filter((s) => safeUrl(s.url)).map((s) => h('li', {}, h('a', { href: s.url, target: '_blank', rel: 'noopener noreferrer' }, `${s.label}: ${new URL(s.url).hostname}`))))),
+      h('section', {}, h('h3', {}, 'Sources'), h('ul', { class: 'plain' }, e.sources.filter((s) => safeUrl(s.url)).map((s) => h('li', {}, h('a', { href: s.url, target: '_blank', rel: 'noopener noreferrer' }, `${s.label}: ${hostOf(s.url)}`))))),
       e.history.length ? h('section', {}, h('h3', {}, 'History'), h('ul', { class: 'plain' }, e.history.map((x) => h('li', {}, h('span', { class: 'muted small' }, `${String(x.at).slice(0, 10)}  `), x.summary)))) : null,
       cockpit ? h('p', {}, h('a', { class: 'btn', href: cockpit, target: '_blank', rel: 'noopener noreferrer' }, 'Review leads in the cockpit')) : null,
       decision,

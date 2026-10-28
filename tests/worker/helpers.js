@@ -95,9 +95,9 @@ export async function addPerson(over = {}) {
 }
 
 export async function attend(eventId, personId, over = {}) {
-  const a = { role: 'speaker', score: 95, tier: 'A', ...over };
-  await env.DB.prepare('INSERT INTO event_people (event_id, person_id, role, score, tier) VALUES (?, ?, ?, ?, ?)')
-    .bind(eventId, personId, a.role, a.score, a.tier)
+  const a = { role: 'speaker', fit: 35, contact: 'verified_email', ...over };
+  await env.DB.prepare('INSERT INTO event_people (event_id, person_id, role, fit, contact) VALUES (?, ?, ?, ?, ?)')
+    .bind(eventId, personId, a.role, a.fit, a.contact)
     .run();
 }
 

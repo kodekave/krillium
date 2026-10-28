@@ -3,7 +3,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import eventsCsv from '../fixtures/events.csv?raw';
 import leadsCsv from '../fixtures/leads.csv?raw';
 import vendorsCsv from '../fixtures/vendors.csv?raw';
-import { buildImportSql, parseCsv } from '../../scripts/import-lib.js';
+import { buildImport, buildImportSql, parseCsv } from '../../scripts/import-lib.js';
 import { getRankedEvents } from '../../worker/src/db.js';
 import { resetData } from './helpers.js';
 
@@ -83,5 +83,50 @@ describe('buildImportSql', () => {
     expect(berlin.lat).toBeCloseTo(52.52, 2);
     const tbc = await env.DB.prepare("SELECT lat, lon, start_date FROM events WHERE id = 'tbc'").first();
     expect(tbc).toEqual({ lat: null, lon: null, start_date: null });
+  });
+});
+
+const EVENTS = 'id,name,city,start_date,end_date,fit,public_names,timing,distance\ne1,Event One,Berlin,2027-03-08,2027-03-10,4,4,4,4\n';
+const LEAD_HEAD = 'event_id,name,title,company,domain,email,email_status,linkedin_url,role,fit,source_url\n';
+const run = async (leads, events = EVENTS, vendors = '') => {
+  const { sql, warnings } = buildImport({ eventsCsv: events, leadsCsv: LEAD_HEAD + leads, vendorsCsv: vendors });
+  await runSql(sql);
+  return warnings;
+};
+const contactOf = async (name) => (await env.DB.prepare('SELECT ep.contact FROM event_people ep JOIN people p ON p.id = ep.person_id WHERE p.name = ?').bind(name).first()).contact;
+
+describe('import review fixes', () => {
+  it('counts only a plain verified or valid status as a verified email', async () => {
+    await run([
+      'e1,Vera Fied,CFO,Acme,acme.test,vera@acme.test,Verified,,Speaker,30,',
+      'e1,Una Fied,CFO,Acme,acme.test,una@acme.test,Unverified,,Speaker,30,',
+      'e1,Not Ver,CFO,Acme,acme.test,not@acme.test,not verified,,Speaker,30,',
+      'e1,Val Id,CFO,Acme,acme.test,val@acme.test,valid,,Speaker,30,',
+    ].join('\n') + '\n');
+    expect(await contactOf('Vera Fied')).toBe('verified_email');
+    expect(await contactOf('Una Fied')).toBe('none');
+    expect(await contactOf('Not Ver')).toBe('none');
+    expect(await contactOf('Val Id')).toBe('verified_email');
+  });
+
+  it('skips a lead or vendor with a blank company name and warns instead of aborting', async () => {
+    const warnings = await run('e1,No Company,CFO,,,,,,Speaker,30,\ne1,Ok Person,CFO,Acme,acme.test,,,,Speaker,30,\n', EVENTS, 'name,domain,event_id\n,blank.test,e1\n');
+    expect(warnings.join(' ')).toMatch(/blank company/);
+    expect(await count('people')).toBe(1);
+  });
+
+  it('stores only ISO dates and warns about anything else', async () => {
+    const events = 'id,name,city,start_date,end_date,fit,public_names,timing,distance\ne1,Event One,Berlin,11/18/2026,2026-18-11,4,4,4,4\ne2,Event Two,Berlin,2027-03-08,2027-03-10,4,4,4,4\n';
+    const warnings = await run('', events);
+    const rows = await env.DB.prepare('SELECT id, start_date, end_date FROM events ORDER BY id').all();
+    expect(rows.results).toEqual([{ id: 'e1', start_date: null, end_date: null }, { id: 'e2', start_date: '2027-03-08', end_date: '2027-03-10' }]);
+    expect(warnings.filter((w) => /unrecognised date/.test(w))).toHaveLength(2);
+  });
+
+  it('keeps the strongest role and contact when a person is listed twice at one event', async () => {
+    await run('e1,Dup Person,CFO,Acme,acme.test,dup@acme.test,Verified,,Speaker,30,\ne1,Dup Person,CFO,Acme,acme.test,dup@acme.test,,,Attendee,30,\n');
+    const row = await env.DB.prepare("SELECT ep.role, ep.contact FROM event_people ep JOIN people p ON p.id = ep.person_id WHERE p.name = 'Dup Person'").first();
+    expect(row).toEqual({ role: 'speaker', contact: 'verified_email' });
+    expect(await count('event_people')).toBe(1);
   });
 });

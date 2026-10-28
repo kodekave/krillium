@@ -231,3 +231,55 @@ describe('GET /api/graph', () => {
     expect((await call(handler, '/api/graph')).status).toBe(401);
   });
 });
+
+describe('tiers follow the active config', () => {
+  it('moves people between tiers when persona points are saved', async () => {
+    await addEvent({ id: 'cfgev' });
+    for (let i = 0; i < 3; i += 1) {
+      const company = await addCompany({ name: `Champ Co ${i}`, domain: `champ${i}.test` });
+      const person = await addPerson({ name: `Champ ${i}`, email: `c${i}@champ${i}.test`, company_id: company, persona: 'champion' });
+      await attend('cfgev', person);
+    }
+    const before = (await (await call(handler, '/api/radar', { token })).json()).data[0];
+    expect(before.counts).toMatchObject({ tierA: 3, tierB: 0 });
+    const cfg = (await (await call(handler, '/api/icp', { token })).json()).data;
+    cfg.persona.champion = 0;
+    const saved = await call(handler, '/api/icp', { method: 'PUT', token, body: cfg });
+    expect(saved.status).toBe(200);
+    const after = (await (await call(handler, '/api/radar', { token })).json()).data[0];
+    expect(after.counts).toMatchObject({ tierA: 0, tierB: 3 });
+    const detail = (await (await call(handler, '/api/events/cfgev', { token })).json()).data;
+    expect(detail.accounts.every((a) => a.tier === 'B')).toBe(true);
+  });
+
+  it('exposes the lead inputs so the page can preview config edits', async () => {
+    await addEvent({ id: 'inputs' });
+    const company = await addCompany({ name: 'Acme', domain: 'acme.test' });
+    const person = await addPerson({ name: 'Ada', email: 'ada@acme.test', company_id: company, persona: 'champion' });
+    await attend('inputs', person, { role: 'attendee', fit: 28, contact: 'linkedin' });
+    const { data } = await (await call(handler, '/api/radar', { token })).json();
+    expect(data[0].leads).toEqual([{ fit: 28, persona: 'champion', eventRole: 'attendee', contact: 'linkedin' }]);
+    expect(JSON.stringify(data[0])).not.toContain('ada@acme.test');
+  });
+
+  it('does not count a company twice when it also has a named person at the event', async () => {
+    await addEvent({ id: 'dupe' });
+    const acme = await addCompany({ name: 'Acme', domain: 'acme.test' });
+    const person = await addPerson({ name: 'Ada', email: 'ada@acme.test', company_id: acme });
+    await attend('dupe', person);
+    await attachCompany('dupe', acme);
+    const other = await addCompany({ name: 'Solo', domain: 'solo.test' });
+    await attachCompany('dupe', other);
+    const { data } = await (await call(handler, '/api/radar', { token })).json();
+    expect(data[0].counts.accountOnly).toBe(1);
+  });
+});
+
+describe('response headers', () => {
+  it('marks data and errors as not cacheable', async () => {
+    const ok = await call(handler, '/api/radar', { token });
+    expect(ok.headers.get('cache-control')).toBe('no-store');
+    const denied = await call(handler, '/api/radar');
+    expect(denied.headers.get('cache-control')).toBe('no-store');
+  });
+});

@@ -19,6 +19,15 @@ async function config() {
   return (await (await call(handler, '/api/icp', { token })).json()).data;
 }
 
+describe('PUT /api/icp home bases', () => {
+  it('rejects home bases that are not a list of numeric coordinates', async () => {
+    const bad = await config();
+    bad.homeBases = [{ name: 'Berlin', lat: '52.5', lon: '13.4' }];
+    const res = await call(handler, '/api/icp', { method: 'PUT', token, body: bad });
+    expect(res.status).toBe(400);
+  });
+});
+
 describe('PUT /api/icp', () => {
   it('rejects shares that do not sum to 1 and saves nothing', async () => {
     const bad = await config();
@@ -161,6 +170,14 @@ describe('GET /api/ask', () => {
     await env.DB.prepare("UPDATE events SET start_date = '2027-09-08', end_date = '2027-09-10' WHERE id = 'outrange'").run();
     const { data } = await (await call(handler, '/api/ask?intent=tier_a_by_event&from=2027-03-01&to=2027-03-31', { token })).json();
     expect(data.rows.map((r) => r.id)).toEqual(['inrange']);
+  });
+
+  it('tier_a_by_event with a date range leaves out undated events', async () => {
+    await seedStrongEvent('dated');
+    await env.DB.prepare("UPDATE events SET start_date = '2027-03-08', end_date = '2027-03-10' WHERE id = 'dated'").run();
+    await addEvent({ id: 'undated', start_date: null, end_date: null });
+    const { data } = await (await call(handler, '/api/ask?intent=tier_a_by_event&from=2027-03-01&to=2027-03-31', { token })).json();
+    expect(data.rows.map((r) => r.id)).toEqual(['dated']);
   });
 
   it('rejects an unknown intent', async () => {

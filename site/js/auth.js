@@ -31,16 +31,25 @@ export function createSession(storage = globalThis.sessionStorage) {
   };
 }
 
+export const sessionEndedMessage = (hadSession) =>
+  hadSession ? 'Your session ended. Sign in again; anything unsaved on this screen is still here.' : undefined;
+
+let googleScript = null;
 function loadGoogleScript() {
-  return new Promise((resolve, reject) => {
-    if (globalThis.google?.accounts?.id) return resolve();
+  if (globalThis.google?.accounts?.id) return Promise.resolve();
+  googleScript ??= new Promise((resolve, reject) => {
     const script = document.createElement('script');
     script.src = 'https://accounts.google.com/gsi/client';
     script.async = true;
     script.onload = () => resolve();
-    script.onerror = () => reject(new Error('Google sign-in could not be loaded'));
+    script.onerror = () => {
+      googleScript = null;
+      script.remove();
+      reject(new Error('Google sign-in could not be loaded'));
+    };
     document.head.append(script);
   });
+  return googleScript;
 }
 
 export async function mountGoogleButton(container, { config, api, onSignedIn, onError }) {

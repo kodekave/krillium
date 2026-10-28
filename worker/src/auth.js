@@ -114,13 +114,18 @@ export async function verifySession(token, secret, now = Date.now()) {
 const unauthorised = () =>
   new Response(JSON.stringify({ error: 'unauthorised' }), {
     status: 401,
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', 'cache-control': 'no-store' },
   });
 
 export async function requireUser(request, env) {
   const header = request.headers.get('authorization') ?? '';
   const match = /^Bearer (.+)$/.exec(header);
-  const user = match ? await verifySession(match[1], env.SESSION_SECRET) : null;
-  if (!user) throw unauthorised();
-  return user;
+  const session = match ? await verifySession(match[1], env.SESSION_SECRET) : null;
+  if (!session) throw unauthorised();
+  // Sessions are stateless, so the allow-list is checked on every request: removing someone takes effect at once.
+  const row = await env.DB.prepare('SELECT name, role, active FROM users WHERE lower(email) = lower(?)')
+    .bind(session.email)
+    .first();
+  if (!row || !row.active) throw unauthorised();
+  return { email: session.email, name: row.name ?? session.name, role: row.role };
 }

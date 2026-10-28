@@ -1,4 +1,4 @@
-import { DEFAULT_CONFIG, rankEvents } from '../../site/js/shared/scoring.js';
+import { DEFAULT_CONFIG, leadScore, rankEvents, tierFor } from '../../site/js/shared/scoring.js';
 
 export async function getActiveConfig(db) {
   const read = () =>
@@ -47,20 +47,27 @@ const RADAR_SQL = `
   SELECT e.id, e.name, e.organiser, e.city, e.country, e.lat, e.lon, e.start_date, e.end_date,
     e.source_url, e.last_checked,
     COALESCE(e.fit, 0) + COALESCE(e.public_names, 0) + COALESCE(e.timing, 0) + COALESCE(e.distance, 0) AS event_score,
-    (SELECT COUNT(*) FROM event_people ep JOIN people p ON p.id = ep.person_id
-       LEFT JOIN companies c ON c.id = p.company_id
-       WHERE ep.event_id = e.id AND ep.tier = 'A' AND COALESCE(c.vendor, 0) = 0) AS tier_a,
-    (SELECT COUNT(*) FROM event_people ep JOIN people p ON p.id = ep.person_id
-       LEFT JOIN companies c ON c.id = p.company_id
-       WHERE ep.event_id = e.id AND ep.tier = 'B' AND COALESCE(c.vendor, 0) = 0) AS tier_b,
     (SELECT COUNT(*) FROM event_companies ec JOIN companies c ON c.id = ec.company_id
-       WHERE ec.event_id = e.id AND c.vendor = 0) AS account_only,
+       WHERE ec.event_id = e.id AND c.vendor = 0
+         AND NOT EXISTS (SELECT 1 FROM event_people ep JOIN people p ON p.id = ep.person_id
+                         WHERE ep.event_id = ec.event_id AND p.company_id = ec.company_id)) AS account_only,
     (SELECT MAX(ch.at) FROM changes ch WHERE ch.event_id = e.id AND ch.kind != 'imported') AS last_real_change
   FROM events e`;
+
+const LEADS_SQL = `
+  SELECT ep.event_id, ep.fit, ep.role, ep.contact, p.persona
+  FROM event_people ep JOIN people p ON p.id = ep.person_id
+  LEFT JOIN companies c ON c.id = p.company_id
+  WHERE COALESCE(c.vendor, 0) = 0`;
+
+const leadInputs = (r) => ({ fit: r.fit ?? 0, persona: r.persona ?? null, eventRole: r.role ?? 'attendee', contact: r.contact ?? 'none' });
 
 export async function getRankedEvents(db, now = Date.now()) {
   const cfg = await getActiveConfig(db);
   const { results } = await db.prepare(RADAR_SQL).all();
+  const leadRows = (await db.prepare(LEADS_SQL).all()).results;
+  const leadsByEvent = new Map();
+  for (const r of leadRows) leadsByEvent.set(r.event_id, [...(leadsByEvent.get(r.event_id) ?? []), leadInputs(r)]);
   const events = results.map((r) => ({
     id: r.id,
     name: r.name,
@@ -72,7 +79,8 @@ export async function getRankedEvents(db, now = Date.now()) {
     startDate: r.start_date,
     endDate: r.end_date,
     eventScore20: r.event_score,
-    counts: { tierA: r.tier_a, tierB: r.tier_b, accountOnly: r.account_only },
+    leads: leadsByEvent.get(r.id) ?? [],
+    accountOnly: r.account_only,
     sourceUrl: r.source_url,
     lastChecked: r.last_checked,
     freshness: freshnessFor(r.last_checked, r.last_real_change, now),
@@ -81,28 +89,33 @@ export async function getRankedEvents(db, now = Date.now()) {
 }
 
 export async function getEventDetail(db, id, user = null, now = Date.now()) {
-  const { events } = await getRankedEvents(db, now);
+  const { cfg, events } = await getRankedEvents(db, now);
   const event = events.find((e) => e.id === id);
   if (!event) return null;
 
   const people = (
     await db
       .prepare(
-        `SELECT c.name AS company, c.domain, p.name AS person, p.title, p.persona, ep.tier, ep.role, p.source_url
+        `SELECT c.name AS company, c.domain, p.name AS person, p.title, p.persona, ep.role, ep.fit, ep.contact, p.source_url
          FROM event_people ep JOIN people p ON p.id = ep.person_id
          LEFT JOIN companies c ON c.id = p.company_id
-         WHERE ep.event_id = ? AND COALESCE(c.vendor, 0) = 0
-         ORDER BY ep.score DESC, p.name`,
+         WHERE ep.event_id = ? AND COALESCE(c.vendor, 0) = 0`,
       )
       .bind(id)
       .all()
-  ).results;
+  ).results
+    .map((r) => ({ ...r, score: leadScore(leadInputs(r), cfg) }))
+    .map((r) => ({ ...r, tier: tierFor(r.score, cfg) }))
+    .sort((a, b) => b.score - a.score || String(a.person).localeCompare(String(b.person)));
   const soloCompanies = (
     await db
       .prepare(
         `SELECT c.name AS company, c.domain, ec.source_url
          FROM event_companies ec JOIN companies c ON c.id = ec.company_id
-         WHERE ec.event_id = ? AND c.vendor = 0 ORDER BY c.name`,
+         WHERE ec.event_id = ? AND c.vendor = 0
+           AND NOT EXISTS (SELECT 1 FROM event_people ep JOIN people p ON p.id = ep.person_id
+                           WHERE ep.event_id = ec.event_id AND p.company_id = ec.company_id)
+         ORDER BY c.name`,
       )
       .bind(id)
       .all()
@@ -174,10 +187,11 @@ export async function getFeed(db, limit = 50) {
 }
 
 export async function getGraph(db) {
+  const cfg = await getActiveConfig(db);
   const people = (
     await db
       .prepare(
-        `SELECT ep.event_id, c.name AS company, c.domain, p.persona, ep.tier, ep.role
+        `SELECT ep.event_id, c.name AS company, c.domain, p.persona, ep.role, ep.fit, ep.contact
          FROM event_people ep JOIN people p ON p.id = ep.person_id
          LEFT JOIN companies c ON c.id = p.company_id
          WHERE COALESCE(c.vendor, 0) = 0`,
@@ -188,13 +202,17 @@ export async function getGraph(db) {
     await db
       .prepare(
         `SELECT ec.event_id, c.name AS company, c.domain
-         FROM event_companies ec JOIN companies c ON c.id = ec.company_id WHERE c.vendor = 0`,
+         FROM event_companies ec JOIN companies c ON c.id = ec.company_id
+         WHERE c.vendor = 0
+           AND NOT EXISTS (SELECT 1 FROM event_people ep JOIN people p ON p.id = ep.person_id
+                           WHERE ep.event_id = ec.event_id AND p.company_id = ec.company_id)`,
       )
       .all()
   ).results;
   const accountsByEvent = {};
   for (const r of people) {
-    (accountsByEvent[r.event_id] ??= []).push({ company: r.company ?? '', domain: r.domain, persona: r.persona, tier: r.tier, role: r.role });
+    const tier = tierFor(leadScore(leadInputs(r), cfg), cfg);
+    (accountsByEvent[r.event_id] ??= []).push({ company: r.company ?? '', domain: r.domain, persona: r.persona, tier, role: r.role });
   }
   for (const r of solo) {
     (accountsByEvent[r.event_id] ??= []).push({ company: r.company, domain: r.domain, persona: null, tier: null, role: 'company_only' });

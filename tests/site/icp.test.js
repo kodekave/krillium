@@ -82,3 +82,17 @@ describe('createDraftStore', () => {
     expect(store.get()).toBeNull();
   });
 });
+
+describe('previewRanking with lead inputs', () => {
+  const lead = (persona) => ({ fit: 35, persona, eventRole: 'speaker', contact: 'verified_email' });
+  const mix = [
+    { id: 'econ', name: 'Economic buyers', eventScore20: 10, accountOnly: 0, leads: [lead('economic_buyer'), lead('economic_buyer')] },
+    { id: 'champ', name: 'Champions', eventScore20: 10, accountOnly: 0, leads: [lead('champion'), lead('champion'), lead('champion')] },
+  ];
+
+  it('re-ranks when persona points change, not only the ranking mix', () => {
+    expect(previewRanking(mix, saved, saved).map((r) => r.id)).toEqual(['champ', 'econ']);
+    const draft = applyEdit(saved, 'persona.champion', 0);
+    expect(previewRanking(mix, saved, draft).map((r) => r.id)).toEqual(['econ', 'champ']);
+  });
+});

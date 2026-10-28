@@ -53,7 +53,22 @@ export function statusFor(priority, cfg) {
   return 'watch';
 }
 
-export function rankEvents(events, cfg) {
+export const leadTier = (lead, cfg) => tierFor(leadScore(lead, cfg), cfg);
+
+// Tiers are always derived from lead inputs and the active config, never stored, so editing the config re-tiers everyone.
+export function countsFromLeads(leads, accountOnly, cfg) {
+  let tierA = 0;
+  let tierB = 0;
+  for (const lead of leads) {
+    const tier = leadTier(lead, cfg);
+    if (tier === 'A') tierA += 1;
+    else if (tier === 'B') tierB += 1;
+  }
+  return { tierA, tierB, accountOnly };
+}
+
+export function rankEvents(inputEvents, cfg) {
+  const events = inputEvents.map((e) => (e.leads ? { ...e, counts: countsFromLeads(e.leads, e.accountOnly ?? 0, cfg) } : e));
   const maxDensity = Math.max(0, ...events.map((e) => icpDensity(e.counts, cfg)));
   return events
     .map((e) => {
@@ -86,9 +101,14 @@ export function validateConfig(cfg) {
   nonNegativeNumbers(cfg.persona, 'persona', errors);
   nonNegativeNumbers(cfg.eventRole, 'eventRole', errors);
   nonNegativeNumbers(cfg.contact, 'contact', errors);
-  for (const base of cfg.homeBases ?? []) {
-    const ok = Math.abs(base.lat) <= 90 && Math.abs(base.lon) <= 180;
-    if (!ok) errors.push(`home base ${base.name} has invalid coordinates`);
+  if (!Array.isArray(cfg.homeBases)) {
+    errors.push('home bases must be a list');
+  } else {
+    for (const base of cfg.homeBases) {
+      const ok = base && typeof base === 'object' && typeof base.name === 'string' && Number.isFinite(base.lat) && Number.isFinite(base.lon) &&
+        Math.abs(base.lat) <= 90 && Math.abs(base.lon) <= 180;
+      if (!ok) errors.push(`home base ${base?.name ?? '(unnamed)'} needs a name and numeric coordinates`);
+    }
   }
   return { ok: errors.length === 0, errors };
 }

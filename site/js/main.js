@@ -1,6 +1,6 @@
 import config from '../config.js';
 import { createApi } from './api.js';
-import { createSession, mountGoogleButton } from './auth.js';
+import { createSession, mountGoogleButton, sessionEndedMessage } from './auth.js';
 import { mountAsk } from './ask.js';
 import { mountDrawer } from './drawer.js';
 import { prefersReducedMotion } from './motion.js';
@@ -86,24 +86,32 @@ function setActive(name) {
   });
 }
 
+let buttonMounted = false;
 function showSignIn(message) {
   const overlay = $('signin');
   overlay.hidden = false;
   const error = $('signin-error');
-  error.hidden = !message;
-  error.textContent = message ?? '';
-  const button = $('signin-button');
-  button.replaceChildren();
-  mountGoogleButton(button, {
+  if (message !== undefined) {
+    error.hidden = !message;
+    error.textContent = message;
+  }
+  if (buttonMounted) return;
+  buttonMounted = true;
+  mountGoogleButton($('signin-button'), {
     config,
     api,
     onSignedIn(data) {
       session.set(data);
       overlay.hidden = true;
-      prefs.load().then(() => prefs.get('theme') && applyTheme(prefs.get('theme')));
-      window.dispatchEvent(new CustomEvent('radar:reauth'));
+      error.hidden = true;
+      // Load the saved preferences, then re-render the current screen so it starts with them.
+      prefs.load().then(() => {
+        if (prefs.get('theme')) applyTheme(prefs.get('theme'));
+        router.start();
+      });
     },
     onError(text) {
+      buttonMounted = false;
       error.hidden = false;
       error.textContent = text;
     },
@@ -111,8 +119,9 @@ function showSignIn(message) {
 }
 
 api.onUnauthorised(() => {
+  const hadSession = Boolean(session.getToken());
   session.clear();
-  showSignIn('Your session ended. Sign in again; anything unsaved on this screen is still here.');
+  showSignIn(sessionEndedMessage(hadSession));
 });
 api.onStale(() => {
   const banner = $('stale');
@@ -125,6 +134,10 @@ api.onFresh(() => {
 
 applyTheme(readTheme());
 renderRail();
+document.querySelector('.skip-link')?.addEventListener('click', (ev) => {
+  ev.preventDefault();
+  $('main').focus();
+});
 if (session.getToken()) {
   await prefs.load();
   if (prefs.get('theme')) applyTheme(prefs.get('theme'));

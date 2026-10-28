@@ -32,7 +32,7 @@ async function authGoogle(request, env, getJwks) {
     if (e instanceof AuthError) return error(401, 'sign-in could not be verified');
     throw e;
   }
-  const row = await env.DB.prepare('SELECT email, name, role, active FROM users WHERE email = ?')
+  const row = await env.DB.prepare('SELECT email, name, role, active FROM users WHERE lower(email) = lower(?)')
     .bind(identity.email)
     .first();
   if (!row || !row.active) return error(403, 'this account is not on the allow-list');

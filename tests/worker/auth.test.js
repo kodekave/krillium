@@ -7,7 +7,7 @@ import {
   verifySession,
   requireUser,
 } from '../../worker/src/auth.js';
-import { b64url, makeKeyPair, makeIdToken } from './helpers.js';
+import { b64url, makeKeyPair, makeIdToken, resetData, addUser } from './helpers.js';
 
 const b64 = b64url;
 
@@ -107,8 +107,51 @@ describe('requireUser', () => {
   });
 
   it('returns the user for a valid session token', async () => {
+    await resetData();
+    await addUser();
     const token = await signSession({ email: 'member@example.test', name: 'Team Member', role: 'member' }, env.SESSION_SECRET);
     const user = await requireUser(new Request('https://api.test/api/radar', { headers: { authorization: `Bearer ${token}` } }), env);
     expect(user.email).toBe('member@example.test');
+  });
+});
+
+describe('requireUser against the allow-list', () => {
+  const bearer = async (email) => {
+    const token = await signSession({ email, name: 'X', role: 'admin' }, env.SESSION_SECRET);
+    return new Request('https://api.test/api/radar', { headers: { authorization: `Bearer ${token}` } });
+  };
+  const status = async (request) => {
+    try {
+      await requireUser(request, env);
+      return 200;
+    } catch (e) {
+      return e.status;
+    }
+  };
+
+  it('rejects a still-valid token once the user is deactivated', async () => {
+    await resetData();
+    await addUser({ email: 'gone@example.test', active: 1 });
+    expect(await status(await bearer('gone@example.test'))).toBe(200);
+    await env.DB.prepare("UPDATE users SET active = 0 WHERE email = 'gone@example.test'").run();
+    expect(await status(await bearer('gone@example.test'))).toBe(401);
+  });
+
+  it('rejects a token for an email that is not on the list', async () => {
+    await resetData();
+    expect(await status(await bearer('stranger@example.test'))).toBe(401);
+  });
+
+  it('matches the allow-list without regard to case', async () => {
+    await resetData();
+    await addUser({ email: 'Jane@Example.Test' });
+    expect(await status(await bearer('jane@example.test'))).toBe(200);
+  });
+
+  it('takes the role from the allow-list, not the token', async () => {
+    await resetData();
+    await addUser({ email: 'low@example.test', role: 'member' });
+    const user = await requireUser(await bearer('low@example.test'), env);
+    expect(user.role).toBe('member');
   });
 });
