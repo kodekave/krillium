@@ -3,6 +3,7 @@ import { createApi } from './api.js';
 import { createSession, mountGoogleButton } from './auth.js';
 import { mountAsk } from './ask.js';
 import { mountDrawer } from './drawer.js';
+import { prefersReducedMotion } from './motion.js';
 import { createPrefs } from './prefs.js';
 import { createRouter } from './router.js';
 
@@ -24,9 +25,6 @@ const NAV = [
 
 const $ = (id) => document.getElementById(id);
 const svg = (paths) => `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths}</svg>`;
-
-export const prefersReducedMotion = () =>
-  Boolean(globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches);
 
 function readTheme() {
   try {

@@ -13,14 +13,18 @@ const PRESET_BOXES = {
 const ease = (t) => (t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2);
 
 export async function createMap(container, { bases, reducedMotion, onSelect, onHover }) {
-  const land = await (await fetch(new URL('../data/land-dots.json', import.meta.url))).json();
+  const [land, outline] = await Promise.all([
+    fetch(new URL('../data/land-dots.json', import.meta.url)).then((r) => r.json()),
+    fetch(new URL('../data/land-outline.json', import.meta.url)).then((r) => r.json()),
+  ]);
   const svg = s('svg', { class: 'map-svg', role: 'group', 'aria-label': 'Map of upcoming events' });
+  const coast = s('path', { class: 'coast', d: outline.d });
   const landPath = s('path', { class: 'land' });
   const arcLayer = s('g', { class: 'arcs' });
   const baseLayer = s('g', { class: 'bases' });
   const cityLayer = s('g', { class: 'cities' });
   const pinLayer = s('g', { class: 'pins' });
-  svg.append(landPath, arcLayer, baseLayer, cityLayer, pinLayer);
+  svg.append(coast, landPath, arcLayer, baseLayer, cityLayer, pinLayer);
   container.append(svg);
 
   landPath.setAttribute('d', Array.from({ length: land.dots.length / 2 }, (_, i) => `M${land.dots[2 * i] * land.step} ${land.dots[2 * i + 1] * land.step}h0`).join(''));
@@ -47,7 +51,7 @@ export async function createMap(container, { bases, reducedMotion, onSelect, onH
     svg.setAttribute('viewBox', `${view.x} ${view.y} ${view.w} ${view.h}`);
     const u = unit();
     // Dots grow when zoomed in so the land stays readable between grid points.
-    const dot = Math.min(18, Math.max(LAND_DOT_PX, (0.5 * land.step) / u));
+    const dot = Math.min(10, Math.max(LAND_DOT_PX, (0.5 * land.step) / u));
     landPath.setAttribute('stroke-width', String(dot * u));
     svg.style.setProperty('--arc-w', String(1.3 * u));
     for (const b of baseNodes) b.node.setAttribute('transform', `translate(${b.x} ${b.y}) scale(${u})`);

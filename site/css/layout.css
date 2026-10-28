@@ -97,7 +97,8 @@ a { color: inherit; }
     border-right: 0; border-top: 1px solid var(--line);
   }
   .rail-mark { display: none; }
-  .rail-list, .rail-foot { flex-direction: row; margin: 0; }
+  .rail-list, .rail-foot { flex-direction: row; margin: 0; gap: 0; }
+  .rail-link { width: 40px; height: 40px; }
   .rail-link[aria-current="page"]::before { left: 12px; right: 12px; top: -7px; bottom: auto; width: auto; height: 3px; border-radius: 0 0 3px 3px; }
   .stale-banner { left: 12px; right: 12px; }
   h1 { font-size: 22px; }

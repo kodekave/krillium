@@ -29,3 +29,25 @@ describe('land dots', () => {
     expect(hasLandNear(30, -40)).toBe(false);
   });
 });
+
+describe('land outline', () => {
+  const outline = JSON.parse(readFileSync(new URL('../../site/data/land-outline.json', import.meta.url), 'utf8'));
+
+  it('is a closed-ring SVG path in map coordinates', () => {
+    expect(outline.width).toBe(data.width);
+    expect(outline.height).toBe(data.height);
+    expect(outline.d.startsWith('M')).toBe(true);
+    expect(outline.d.length).toBeGreaterThan(5000);
+    expect((outline.d.match(/Z/g) ?? []).length).toBeGreaterThan(20);
+  });
+
+  it('stays inside the map box', () => {
+    const nums = outline.d.match(/-?\d+(?:\.\d+)?/g).map(Number);
+    for (let i = 0; i < nums.length; i += 2) {
+      expect(nums[i]).toBeGreaterThanOrEqual(-1);
+      expect(nums[i]).toBeLessThanOrEqual(outline.width + 1);
+      expect(nums[i + 1]).toBeGreaterThanOrEqual(-60);
+      expect(nums[i + 1]).toBeLessThanOrEqual(outline.height + 60);
+    }
+  });
+});

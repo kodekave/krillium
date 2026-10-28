@@ -1,6 +1,7 @@
 // Event detail drawer: why attend, who is attached, sources, history, and the user's decision.
 import { h, safeUrl } from './dom.js';
 import { formatRange } from './format.js';
+import { countUp } from './motion.js';
 
 const STATUS_LABEL = { 'must-attend': 'Must-attend', consider: 'Consider', watch: 'Watch' };
 const CHOICE_LABEL = { attend: 'Attend', watch: 'Watch', skip: 'Skip' };
@@ -59,11 +60,13 @@ export function mountDrawer(ctx) {
     const decision = h('div', { class: 'decision' });
     drawDecision(decision, e);
     const cockpit = ctx.config.cockpitUrl && safeUrl(ctx.config.cockpitUrl);
+    const score = h('span', { class: 'num big' }, String(Math.round(e.priority)));
+    countUp(score, Math.round(e.priority));
     panel.replaceChildren(
       closeBtn(),
       h('header', {}, h('span', { class: `pill pill-${e.status}` }, STATUS_LABEL[e.status]), h('h2', {}, e.name),
         h('p', { class: 'muted' }, [e.city, formatRange(e.startDate, e.endDate)].filter(Boolean).join(', ')),
-        h('p', { class: 'drawer-score' }, h('span', { class: 'num big' }, String(Math.round(e.priority))), h('span', { class: 'muted' }, ` priority, event score ${e.eventScore20} of 20`))),
+        h('p', { class: 'drawer-score' }, score, h('span', { class: 'muted' }, ` priority, event score ${e.eventScore20} of 20`))),
       h('section', {}, h('h3', {}, 'Why attend'), h('ul', { class: 'plain' }, e.reasons.map((r) => h('li', {}, r))),
         e.vendorShare !== null ? h('p', { class: 'muted small' }, `${e.vendorCount} vendors or competitors seen, ${Math.round(e.vendorShare * 100)}% of companies listed.`) : null),
       h('section', {}, h('h3', {}, `Who is attached (${e.accounts.length})`),
