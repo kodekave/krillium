@@ -1,5 +1,5 @@
 import { error, json } from '../http.js';
-import { getActiveConfig, getEventDetail, getFeed, getRankedEvents } from '../db.js';
+import { getActiveConfig, getEventDetail, getFeed, getGraph, getRankedEvents } from '../db.js';
 
 export async function radar({ env }) {
   const { events } = await getRankedEvents(env.DB);
@@ -17,4 +17,8 @@ export async function feed({ env }) {
 
 export async function icp({ env }) {
   return json(await getActiveConfig(env.DB));
+}
+
+export async function graph({ env }) {
+  return json(await getGraph(env.DB));
 }

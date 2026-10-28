@@ -1,6 +1,7 @@
 import config from '../config.js';
 import { createApi } from './api.js';
 import { createSession, mountGoogleButton } from './auth.js';
+import { mountAsk } from './ask.js';
 import { mountDrawer } from './drawer.js';
 import { createPrefs } from './prefs.js';
 import { createRouter } from './router.js';
@@ -49,6 +50,13 @@ const api = createApi(config, { getToken: session.getToken });
 const prefs = createPrefs(api);
 const ctx = { api, config, session, prefs, openEvent: () => {}, prefersReducedMotion };
 ctx.openEvent = mountDrawer(ctx).open;
+const ask = mountAsk(ctx);
+addEventListener('keydown', (ev) => {
+  if ((ev.metaKey || ev.ctrlKey) && ev.key.toLowerCase() === 'k') {
+    ev.preventDefault();
+    if (session.getToken()) ask.toggle();
+  }
+});
 
 function renderRail() {
   $('rail').innerHTML = `
@@ -57,9 +65,11 @@ function renderRail() {
     </a>
     <ul class="rail-list">${NAV.map((n) => `<li><a class="rail-link" data-route="${n.name}" href="#/${n.name}" aria-label="${n.label}" title="${n.label}">${svg(n.icon)}<span class="rail-label">${n.label}</span></a></li>`).join('')}</ul>
     <div class="rail-foot">
+      <button class="rail-link" id="ask-open" type="button" aria-label="Ask the radar" title="Ask (Cmd or Ctrl K)">${svg('<circle cx="11" cy="11" r="6.5"/><path d="M16 16l4 4"/>')}</button>
       <button class="rail-link" id="theme-toggle" type="button" aria-label="Switch light and dark theme" title="Theme">${svg('<path d="M20 14.5A8 8 0 019.5 4 8 8 0 1020 14.5z"/>')}</button>
       <button class="rail-link" id="sign-out" type="button" aria-label="Sign out" title="Sign out">${svg('<path d="M9 5H6a1 1 0 00-1 1v12a1 1 0 001 1h3M14 8l4 4-4 4M18 12H9"/>')}</button>
     </div>`;
+  $('ask-open').addEventListener('click', () => ask.open());
   $('theme-toggle').addEventListener('click', () => {
     const next = document.documentElement.dataset.theme === 'light' ? 'dark' : 'light';
     applyTheme(next);

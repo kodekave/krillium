@@ -172,3 +172,32 @@ export async function getFeed(db, limit = 50) {
     summary: r.summary, sourceUrl: r.source_url, at: r.at,
   }));
 }
+
+export async function getGraph(db) {
+  const people = (
+    await db
+      .prepare(
+        `SELECT ep.event_id, c.name AS company, c.domain, p.persona, ep.tier, ep.role
+         FROM event_people ep JOIN people p ON p.id = ep.person_id
+         LEFT JOIN companies c ON c.id = p.company_id
+         WHERE COALESCE(c.vendor, 0) = 0`,
+      )
+      .all()
+  ).results;
+  const solo = (
+    await db
+      .prepare(
+        `SELECT ec.event_id, c.name AS company, c.domain
+         FROM event_companies ec JOIN companies c ON c.id = ec.company_id WHERE c.vendor = 0`,
+      )
+      .all()
+  ).results;
+  const accountsByEvent = {};
+  for (const r of people) {
+    (accountsByEvent[r.event_id] ??= []).push({ company: r.company ?? '', domain: r.domain, persona: r.persona, tier: r.tier, role: r.role });
+  }
+  for (const r of solo) {
+    (accountsByEvent[r.event_id] ??= []).push({ company: r.company, domain: r.domain, persona: null, tier: null, role: 'company_only' });
+  }
+  return { accountsByEvent };
+}

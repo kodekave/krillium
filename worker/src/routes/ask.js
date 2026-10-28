@@ -23,9 +23,13 @@ const INTENTS = {
     return json({ intent: 'changed_this_week', rows });
   },
 
-  async tier_a_by_event({ env }) {
+  async tier_a_by_event({ env, url }) {
+    const from = url.searchParams.get('from');
+    const to = url.searchParams.get('to');
+    if ((from || to) && !(ISO_DATE.test(from ?? '') && ISO_DATE.test(to ?? ''))) return error(400, 'from and to must be YYYY-MM-DD dates');
     const { events } = await getRankedEvents(env.DB);
     const rows = events
+      .filter((e) => !from || !e.startDate || (e.startDate <= to && (e.endDate ?? e.startDate) >= from))
       .map((e) => ({ id: e.id, name: e.name, tierA: e.counts.tierA, priority: e.priority }))
       .sort((a, b) => b.tierA - a.tierA || b.priority - a.priority)
       .slice(0, 10);

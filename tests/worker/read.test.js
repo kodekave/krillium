@@ -211,3 +211,23 @@ describe('GET /api/icp', () => {
     expect(data.thresholds.mustAttend).toBe(70);
   });
 });
+
+describe('GET /api/graph', () => {
+  it('returns accounts grouped by event and leaves vendors out', async () => {
+    await addEvent({ id: 'g1' });
+    const acme = await addCompany({ name: 'Acme', domain: 'acme.test' });
+    const person = await addPerson({ name: 'Ada Buyer', email: 'ada@acme.test', company_id: acme });
+    await attend('g1', person);
+    const solo = await addCompany({ name: 'Solo Co', domain: 'solo.test' });
+    await attachCompany('g1', solo);
+    const vendor = await addCompany({ name: 'Vendor Co', domain: 'vendor.test', vendor: 1 });
+    await attachCompany('g1', vendor);
+    const { data } = await (await call(handler, '/api/graph', { token })).json();
+    expect(data.accountsByEvent.g1.map((a) => a.company).sort()).toEqual(['Acme', 'Solo Co']);
+    expect(data.accountsByEvent.g1.find((a) => a.company === 'Acme')).toMatchObject({ domain: 'acme.test', persona: 'economic_buyer', tier: 'A' });
+  });
+
+  it('requires a token', async () => {
+    expect((await call(handler, '/api/graph')).status).toBe(401);
+  });
+});

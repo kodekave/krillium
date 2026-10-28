@@ -154,6 +154,15 @@ describe('GET /api/ask', () => {
     expect(data.rows[0]).toMatchObject({ id: 'many', tierA: 4 });
   });
 
+  it('tier_a_by_event accepts an optional date range', async () => {
+    await seedStrongEvent('inrange');
+    await env.DB.prepare("UPDATE events SET start_date = '2027-03-08', end_date = '2027-03-10' WHERE id = 'inrange'").run();
+    await seedStrongEvent('outrange');
+    await env.DB.prepare("UPDATE events SET start_date = '2027-09-08', end_date = '2027-09-10' WHERE id = 'outrange'").run();
+    const { data } = await (await call(handler, '/api/ask?intent=tier_a_by_event&from=2027-03-01&to=2027-03-31', { token })).json();
+    expect(data.rows.map((r) => r.id)).toEqual(['inrange']);
+  });
+
   it('rejects an unknown intent', async () => {
     const res = await call(handler, '/api/ask?intent=drop_tables', { token });
     expect(res.status).toBe(400);
