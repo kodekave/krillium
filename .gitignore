@@ -4,3 +4,4 @@ data/
 import.sql
 .wrangler
 .superpowers
+.claude

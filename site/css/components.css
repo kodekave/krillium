@@ -1,0 +1,53 @@
+.glass {
+  background: var(--glass);
+  backdrop-filter: blur(18px) saturate(1.2);
+  border: 1px solid var(--line);
+}
+
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  height: 36px; padding: 0 14px; border-radius: var(--r-control);
+  border: 1px solid var(--line-strong); background: transparent; color: var(--text);
+  font: 500 13px/1 var(--font-sans); cursor: pointer; text-decoration: none;
+  transition: background 0.15s, border-color 0.15s;
+}
+.btn:hover { background: var(--line); }
+.btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.btn-primary { background: var(--moss); border-color: transparent; color: #f3fbf6; }
+.btn-primary:hover { background: var(--moss-hover); }
+.btn-danger { color: var(--danger); }
+
+.pill {
+  display: inline-flex; align-items: center; gap: 6px; height: 22px; padding: 0 9px;
+  border-radius: var(--r-pill); border: 1px solid var(--line); background: var(--line);
+  font-size: 12px; font-weight: 500; white-space: nowrap;
+}
+.pill::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--dim); }
+.pill-must-attend { color: var(--amber); border-color: color-mix(in srgb, var(--amber) 45%, transparent); }
+.pill-must-attend::before { background: var(--amber); }
+.pill-consider { color: var(--sage); }
+.pill-consider::before { background: var(--sage); }
+.pill-watch { color: var(--muted); }
+.pill-verified { color: var(--sage); }
+.pill-verified::before { background: var(--sage); }
+.pill-needs-check { color: var(--muted); }
+.pill-changed { color: var(--amber); }
+.pill-changed::before { background: var(--amber); }
+
+input, select, textarea {
+  height: 36px; padding: 0 12px; border-radius: var(--r-control);
+  border: 1px solid var(--line-strong); background: var(--canvas-2); color: var(--text);
+  font: 400 13px/1 var(--font-sans);
+}
+textarea { height: auto; padding: 10px 12px; line-height: 1.45; }
+label { color: var(--muted); font-size: 12px; }
+
+table { width: 100%; border-collapse: collapse; }
+th { text-align: left; font-weight: 500; font-size: 12px; color: var(--muted); padding: 10px 12px; border-bottom: 1px solid var(--line); }
+td { padding: 12px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+tr[data-id] { cursor: pointer; }
+tr[data-id]:hover td { background: var(--line); }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.001ms !important; animation-iteration-count: 1 !important; transition-duration: 0.001ms !important; scroll-behavior: auto !important; }
+}

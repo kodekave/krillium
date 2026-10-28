@@ -1,0 +1,104 @@
+*, *::before, *::after { box-sizing: border-box; }
+
+html, body { height: 100%; }
+
+body {
+  margin: 0;
+  background: var(--canvas);
+  color: var(--text);
+  font: 400 14px/1.5 var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+}
+
+h1, h2, h3 { margin: 0; font-weight: 500; letter-spacing: -0.02em; }
+h1 { font-size: 26px; line-height: 1.15; letter-spacing: -0.03em; }
+h2 { font-size: 17px; }
+p { margin: 0; }
+a { color: inherit; }
+.muted { color: var(--muted); }
+.num { font-variant-numeric: tabular-nums; font-family: var(--font-mono); font-feature-settings: "tnum"; }
+
+.skip-link {
+  position: fixed; left: 12px; top: -48px; z-index: 100;
+  padding: 8px 12px; border-radius: var(--r-control);
+  background: var(--glass-strong); border: 1px solid var(--line-strong);
+}
+.skip-link:focus { top: 12px; }
+
+:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+
+.app {
+  position: relative;
+  display: grid;
+  grid-template-columns: var(--rail) 1fr;
+  height: 100%;
+}
+
+.stage {
+  position: relative;
+  min-width: 0;
+  height: 100%;
+  overflow: auto;
+  outline: none;
+}
+
+.view { padding: 28px clamp(var(--gutter), 3vw, 40px) 40px; max-width: 1280px; }
+.view > header { margin-bottom: 20px; }
+.view > header p { margin-top: 6px; max-width: 62ch; }
+
+.rail {
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
+  padding: 14px 0; z-index: 5;
+  border-right: 1px solid var(--line);
+  background: var(--glass); backdrop-filter: blur(18px) saturate(1.2);
+}
+.rail-mark { display: grid; place-items: center; width: 44px; height: 44px; margin-bottom: 8px; color: var(--text); }
+.rail-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.rail-foot { margin-top: auto; display: flex; flex-direction: column; gap: 4px; }
+.rail-link {
+  position: relative; display: grid; place-items: center; width: 44px; height: 44px;
+  border: 0; border-radius: var(--r-inner); background: transparent; color: var(--muted);
+  cursor: pointer; text-decoration: none; transition: background 0.15s, color 0.15s;
+}
+.rail-link:hover { background: var(--line); color: var(--text); }
+.rail-link[aria-current="page"] { background: var(--line); color: var(--text); }
+.rail-link[aria-current="page"]::before {
+  content: ""; position: absolute; left: -12px; top: 12px; bottom: 12px; width: 3px;
+  border-radius: 0 3px 3px 0; background: var(--amber);
+}
+.rail-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+
+.stale-banner {
+  position: absolute; z-index: 20; left: calc(var(--rail) + 16px); right: 16px; top: 12px;
+  padding: 9px 14px; border-radius: var(--r-inner);
+  background: var(--glass-strong); border: 1px solid var(--amber); color: var(--text);
+  backdrop-filter: blur(14px);
+}
+
+.signin {
+  position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; padding: var(--gutter);
+  background: color-mix(in srgb, var(--canvas) 82%, transparent); backdrop-filter: blur(10px);
+}
+.signin[hidden], .stale-banner[hidden] { display: none; }
+.signin-card {
+  width: min(400px, 100%); padding: 34px 30px 30px; border-radius: var(--r-feature);
+  display: flex; flex-direction: column; gap: 14px; align-items: flex-start; box-shadow: var(--shadow);
+}
+.signin-card .mark { color: var(--text); }
+.signin-button { min-height: 44px; }
+.signin-error { color: var(--danger); max-width: 40ch; }
+
+@media (max-width: 640px) {
+  :root { --rail: 0px; }
+  .app { grid-template-columns: 1fr; grid-template-rows: 1fr auto; }
+  .rail {
+    grid-row: 2; flex-direction: row; justify-content: space-around; padding: 6px 8px calc(6px + env(safe-area-inset-bottom));
+    border-right: 0; border-top: 1px solid var(--line);
+  }
+  .rail-mark { display: none; }
+  .rail-list, .rail-foot { flex-direction: row; margin: 0; }
+  .rail-link[aria-current="page"]::before { left: 12px; right: 12px; top: -7px; bottom: auto; width: auto; height: 3px; border-radius: 0 0 3px 3px; }
+  .stale-banner { left: 12px; right: 12px; }
+  h1 { font-size: 22px; }
+}

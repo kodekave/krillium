@@ -1,0 +1,59 @@
+:root,
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --canvas: #0a1612;
+  --canvas-2: #0f1f19;
+  --land: #1c3a30;
+  --land-dim: #15291f;
+  --glass: rgba(15, 31, 25, 0.66);
+  --glass-strong: rgba(11, 24, 19, 0.9);
+  --line: rgba(214, 240, 226, 0.11);
+  --line-strong: rgba(214, 240, 226, 0.2);
+  --text: #e8f1ec;
+  --muted: #92aa9e;
+  --amber: #f3b23e;
+  --amber-ink: #231703;
+  --sage: #86c3a9;
+  --dim: #5f776b;
+  --moss: #2d6a50;
+  --moss-hover: #347b5c;
+  --danger: #ea8a73;
+  --focus: #9be0c2;
+  --shadow: 0 18px 50px rgba(0, 0, 0, 0.45);
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+  --canvas: #f2f1ea;
+  --canvas-2: #fbfaf6;
+  --land: #cfdcd2;
+  --land-dim: #dde7df;
+  --glass: rgba(255, 255, 255, 0.7);
+  --glass-strong: rgba(255, 255, 255, 0.92);
+  --line: rgba(20, 38, 30, 0.12);
+  --line-strong: rgba(20, 38, 30, 0.22);
+  --text: #14201b;
+  --muted: #566a5f;
+  --amber: #b9720a;
+  --amber-ink: #fff8e8;
+  --sage: #2c7556;
+  --dim: #7f9488;
+  --moss: #1f4a39;
+  --moss-hover: #275a46;
+  --danger: #b4462f;
+  --focus: #1f6a4d;
+  --shadow: 0 18px 50px rgba(20, 38, 30, 0.14);
+}
+
+:root {
+  --font-sans: "Geist", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "Geist Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --r-sm: 6px;
+  --r-control: 8px;
+  --r-inner: 12px;
+  --r-card: 14px;
+  --r-feature: 20px;
+  --r-pill: 999px;
+  --rail: 68px;
+  --gutter: 16px;
+}

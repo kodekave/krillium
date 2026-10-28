@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>GTM Radar</title>
+  <meta name="description" content="Which events to attend, and why, ranked by the buyers publicly attached to each one.">
+  <meta name="robots" content="noindex">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="css/tokens.css">
+  <link rel="stylesheet" href="css/layout.css">
+  <link rel="stylesheet" href="css/components.css">
+  <link rel="stylesheet" href="css/map.css">
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="app" id="app">
+    <nav class="rail" aria-label="Main" id="rail"></nav>
+    <div class="stale-banner" id="stale" role="status" hidden></div>
+    <main class="stage" id="main" tabindex="-1"></main>
+  </div>
+  <div class="signin" id="signin" hidden role="dialog" aria-modal="true" aria-labelledby="signin-title">
+    <div class="signin-card glass">
+      <svg class="mark" viewBox="0 0 32 32" width="36" height="36" aria-hidden="true"><circle cx="16" cy="16" r="13" fill="none" stroke="currentColor" stroke-width="1.5" opacity=".5"/><circle cx="16" cy="16" r="7" fill="none" stroke="currentColor" stroke-width="1.5" opacity=".75"/><circle cx="16" cy="16" r="2.4" fill="var(--amber)"/></svg>
+      <h1 id="signin-title">GTM Radar</h1>
+      <p class="muted">Sign in with your team Google account to see which events to attend.</p>
+      <div id="signin-button" class="signin-button"></div>
+      <p class="signin-error" id="signin-error" role="alert" hidden></p>
+    </div>
+  </div>
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
