@@ -1,6 +1,6 @@
 // Rule-based cleaning shared by the Worker and the page. Models are only for what these rules cannot read.
 
-const fold = (s) =>
+export const fold = (s) =>
   String(s ?? '')
     .normalize('NFD')
     .replace(/[̀-ͯ]/g, '')

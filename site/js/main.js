@@ -1,6 +1,8 @@
 import config from '../config.js';
 import { createApi } from './api.js';
 import { createSession, mountGoogleButton } from './auth.js';
+import { mountDrawer } from './drawer.js';
+import { createPrefs } from './prefs.js';
 import { createRouter } from './router.js';
 
 const ROUTES = {
@@ -44,7 +46,9 @@ function applyTheme(theme) {
 
 const session = createSession();
 const api = createApi(config, { getToken: session.getToken });
-const ctx = { api, config, session, openEvent: () => {}, prefersReducedMotion };
+const prefs = createPrefs(api);
+const ctx = { api, config, session, prefs, openEvent: () => {}, prefersReducedMotion };
+ctx.openEvent = mountDrawer(ctx).open;
 
 function renderRail() {
   $('rail').innerHTML = `
@@ -56,7 +60,11 @@ function renderRail() {
       <button class="rail-link" id="theme-toggle" type="button" aria-label="Switch light and dark theme" title="Theme">${svg('<path d="M20 14.5A8 8 0 019.5 4 8 8 0 1020 14.5z"/>')}</button>
       <button class="rail-link" id="sign-out" type="button" aria-label="Sign out" title="Sign out">${svg('<path d="M9 5H6a1 1 0 00-1 1v12a1 1 0 001 1h3M14 8l4 4-4 4M18 12H9"/>')}</button>
     </div>`;
-  $('theme-toggle').addEventListener('click', () => applyTheme(document.documentElement.dataset.theme === 'light' ? 'dark' : 'light'));
+  $('theme-toggle').addEventListener('click', () => {
+    const next = document.documentElement.dataset.theme === 'light' ? 'dark' : 'light';
+    applyTheme(next);
+    prefs.set('theme', next);
+  });
   $('sign-out').addEventListener('click', () => {
     session.clear();
     showSignIn();
@@ -84,6 +92,7 @@ function showSignIn(message) {
     onSignedIn(data) {
       session.set(data);
       overlay.hidden = true;
+      prefs.load().then(() => prefs.get('theme') && applyTheme(prefs.get('theme')));
       window.dispatchEvent(new CustomEvent('radar:reauth'));
     },
     onError(text) {
@@ -108,6 +117,10 @@ api.onFresh(() => {
 
 applyTheme(readTheme());
 renderRail();
+if (session.getToken()) {
+  await prefs.load();
+  if (prefs.get('theme')) applyTheme(prefs.get('theme'));
+}
 const router = createRouter({ root: $('main'), routes: ROUTES, ctx, onRoute: setActive });
 router.start();
 if (!session.getToken()) showSignIn();

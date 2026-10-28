@@ -169,6 +169,24 @@ describe('GET /api/events/:id', () => {
     expect(data.vendorShare).toBeCloseTo(1 / 3, 5);
   });
 
+  it('includes the signed-in user\'s latest decision and nobody else\'s', async () => {
+    await addEvent({ id: 'dd' });
+    await env.DB.prepare('INSERT INTO decisions (event_id, user, choice, reason, at) VALUES (?, ?, ?, ?, ?)')
+      .bind('dd', 'member@example.test', 'watch', 'wait for lineup', daysAgo(3)).run();
+    await env.DB.prepare('INSERT INTO decisions (event_id, user, choice, reason, at) VALUES (?, ?, ?, ?, ?)')
+      .bind('dd', 'member@example.test', 'attend', 'lineup is strong', daysAgo(1)).run();
+    await env.DB.prepare('INSERT INTO decisions (event_id, user, choice, reason, at) VALUES (?, ?, ?, ?, ?)')
+      .bind('dd', 'other@example.test', 'skip', 'not for us', daysAgo(0)).run();
+    const { data } = await (await call(handler, '/api/events/dd', { token })).json();
+    expect(data.myDecision).toMatchObject({ choice: 'attend', reason: 'lineup is strong' });
+  });
+
+  it('returns a null myDecision when the user has not decided', async () => {
+    await addEvent({ id: 'nd' });
+    const { data } = await (await call(handler, '/api/events/nd', { token })).json();
+    expect(data.myDecision).toBeNull();
+  });
+
   it('returns 404 for an unknown event', async () => {
     const res = await call(handler, '/api/events/unknown', { token });
     expect(res.status).toBe(404);

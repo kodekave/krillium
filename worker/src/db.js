@@ -80,7 +80,7 @@ export async function getRankedEvents(db, now = Date.now()) {
   return { cfg, events: rankEvents(events, cfg) };
 }
 
-export async function getEventDetail(db, id, now = Date.now()) {
+export async function getEventDetail(db, id, user = null, now = Date.now()) {
   const { events } = await getRankedEvents(db, now);
   const event = events.find((e) => e.id === id);
   if (!event) return null;
@@ -121,6 +121,13 @@ export async function getEventDetail(db, id, now = Date.now()) {
       .all()
   ).results.map((h) => ({ at: h.at, kind: h.kind, summary: h.summary, sourceUrl: h.source_url }));
 
+  const mine = user
+    ? await db
+        .prepare('SELECT choice, reason, note, at FROM decisions WHERE event_id = ? AND user = ? ORDER BY at DESC, id DESC LIMIT 1')
+        .bind(id, user)
+        .first()
+    : null;
+
   const accounts = [
     ...people.map((p) => ({
       company: p.company ?? '', domain: p.domain, person: p.person, title: p.title,
@@ -148,7 +155,7 @@ export async function getEventDetail(db, id, now = Date.now()) {
   const companyCount = new Set(accounts.map((a) => a.company)).size;
   const vendorShare = vendorCount + companyCount > 0 ? vendorCount / (vendorCount + companyCount) : null;
 
-  return { ...event, reasons, accounts, sources, history, vendorCount, vendorShare };
+  return { ...event, reasons, accounts, sources, history, vendorCount, vendorShare, myDecision: mine ?? null };
 }
 
 export async function getFeed(db, limit = 50) {

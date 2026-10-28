@@ -6,8 +6,8 @@ export async function radar({ env }) {
   return json(events);
 }
 
-export async function eventDetail({ env, params }) {
-  const detail = await getEventDetail(env.DB, decodeURIComponent(params[0]));
+export async function eventDetail({ env, params, user }) {
+  const detail = await getEventDetail(env.DB, decodeURIComponent(params[0]), user.email);
   return detail ? json(detail) : error(404, 'event not found');
 }
 

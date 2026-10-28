@@ -17,3 +17,6 @@ function build(el, attrs, children) {
 
 export const h = (tag, attrs, ...children) => build(document.createElement(tag), attrs, children);
 export const s = (tag, attrs, ...children) => build(document.createElementNS(SVG_NS, tag), attrs, children);
+
+// Links from the database must be plain web URLs: anything else (javascript:, data:) is dropped.
+export const safeUrl = (u) => (typeof u === 'string' && /^https?:\/\//i.test(u) ? u : null);
