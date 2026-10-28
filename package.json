@@ -1,0 +1,16 @@
+{
+  "name": "gtm-radar",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "dev:worker": "wrangler dev --local",
+    "dev:site": "python3 -m http.server 8080 --directory site"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-plugin": "1.4.10",
+    "vitest": "4.1.12",
+    "wrangler": "4.155.0"
+  }
+}
