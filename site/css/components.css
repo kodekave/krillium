@@ -99,3 +99,25 @@ tr[data-id]:hover td { background: var(--line); }
 @media (max-width: 640px) {
   .drawer { top: auto; left: 0; width: 100%; max-height: 88%; border-left: 0; border-top: 1px solid var(--line-strong); border-radius: var(--r-feature) var(--r-feature) 0 0; transform: translateY(100%); }
 }
+
+.icp-actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+.errors { margin: 0 0 14px; padding: 10px 14px 10px 30px; border: 1px solid var(--danger); border-radius: var(--r-inner); color: var(--danger); }
+.errors[hidden] { display: none; }
+.icp-grid { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 18px; align-items: start; }
+.icp-form { display: flex; flex-direction: column; gap: 14px; }
+.icp-card { padding: 18px 20px; border-radius: var(--r-card); display: flex; flex-direction: column; gap: 8px; }
+.icp-card input[type="range"] { width: 100%; height: 22px; padding: 0; border: 0; background: none; accent-color: var(--amber); }
+.share-label { color: var(--text); font-size: 13px; }
+.fields { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 12px; margin-top: 4px; }
+.fields input, .base-row input { width: 100%; }
+.base-row { display: grid; grid-template-columns: 1.2fr 1fr 1fr; gap: 12px; margin-top: 6px; }
+.icp-preview { position: sticky; top: 20px; padding: 18px 16px 12px 20px; border-radius: var(--r-feature); max-height: calc(100vh - 40px); overflow: auto; display: flex; flex-direction: column; gap: 8px; }
+.preview-list { list-style: none; margin: 4px 0 0; padding: 0; }
+.preview-row { display: grid; grid-template-columns: 22px 1fr auto 32px; gap: 10px; align-items: center; padding: 9px 4px; border-bottom: 1px solid var(--line); }
+.preview-name { display: flex; flex-direction: column; min-width: 0; }
+.preview-name > span:first-child { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.preview-rank { color: var(--muted); }
+.delta { font-size: 12px; color: var(--muted); min-width: 28px; text-align: right; }
+.delta.up { color: var(--sage); }
+.delta.down { color: var(--danger); }
+@media (max-width: 1000px) { .icp-grid { grid-template-columns: 1fr; } .icp-preview { position: static; max-height: none; } }
