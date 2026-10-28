@@ -7,42 +7,9 @@ import {
   verifySession,
   requireUser,
 } from '../../worker/src/auth.js';
+import { b64url, makeKeyPair, makeIdToken } from './helpers.js';
 
-const enc = new TextEncoder();
-const b64url = (input) => {
-  const bytes = typeof input === 'string' ? enc.encode(input) : new Uint8Array(input);
-  let s = '';
-  for (const b of bytes) s += String.fromCharCode(b);
-  return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-};
-
-async function makeKeyPair(kid) {
-  const pair = await crypto.subtle.generateKey(
-    { name: 'RSASSA-PKCS1-v1_5', modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: 'SHA-256' },
-    true,
-    ['sign', 'verify'],
-  );
-  const jwk = await crypto.subtle.exportKey('jwk', pair.publicKey);
-  return { privateKey: pair.privateKey, jwks: { keys: [{ ...jwk, kid, alg: 'RS256', use: 'sig' }] }, kid };
-}
-
-async function makeIdToken({ privateKey, kid }, overrides = {}) {
-  const now = Math.floor(Date.now() / 1000);
-  const payload = {
-    iss: 'https://accounts.google.com',
-    aud: env.GOOGLE_CLIENT_ID,
-    exp: now + 3600,
-    iat: now,
-    email: 'member@example.test',
-    email_verified: true,
-    name: 'Team Member',
-    ...overrides,
-  };
-  const head = b64url(JSON.stringify({ alg: 'RS256', typ: 'JWT', kid }));
-  const body = b64url(JSON.stringify(payload));
-  const sig = await crypto.subtle.sign('RSASSA-PKCS1-v1_5', privateKey, enc.encode(`${head}.${body}`));
-  return `${head}.${body}.${b64url(sig)}`;
-}
+const b64 = b64url;
 
 describe('verifyGoogleIdToken', () => {
   it('returns the email and name for a valid token', async () => {
@@ -96,7 +63,7 @@ describe('sessions', () => {
   it('returns null for a tampered token', async () => {
     const token = await signSession(user, secret);
     const [h, , s] = token.split('.');
-    const forged = `${h}.${b64url(JSON.stringify({ ...user, role: 'admin', exp: 9999999999 }))}.${s}`;
+    const forged = `${h}.${b64(JSON.stringify({ ...user, role: 'admin', exp: 9999999999 }))}.${s}`;
     expect(await verifySession(forged, secret)).toBeNull();
   });
 
