@@ -113,6 +113,7 @@ The first import loads CSV exports of the existing Sheet tabs (Events, Leads, Ve
 
 - Daily cron: fetch each public event page, hash the content. If the hash changed, extract with rules first, then the model only for what rules cannot read. Write a `changes` row, update the event, re-score.
 - Monthly: look for new events from the organiser and association list.
+- On-demand event search across aggregators and open feeds, with cross-checking and auto-add: see `2026-10-29-event-discovery-design.md`.
 - Each job writes a `runs` row with model spend. A per-run model cap applies. Two consecutive failures raise an alert.
 - Public pages only, `robots.txt` respected, fetches rate-limited, nothing behind a login.
 
