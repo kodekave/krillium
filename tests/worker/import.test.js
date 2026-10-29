@@ -5,7 +5,7 @@ import leadsCsv from '../fixtures/leads.csv?raw';
 import vendorsCsv from '../fixtures/vendors.csv?raw';
 import { buildImport, buildImportSql, parseCsv } from '../../scripts/import-lib.js';
 import { getRankedEvents } from '../../worker/src/db.js';
-import { resetData } from './helpers.js';
+import { addEvent, addWorkspace, resetData } from './helpers.js';
 
 const runSql = async (sql) => {
   for (const line of sql.split('\n').filter((l) => l.trim())) await env.DB.prepare(line).run();
@@ -52,7 +52,7 @@ describe('buildImportSql', () => {
     await runSql(sql());
     const vendor = await env.DB.prepare("SELECT vendor FROM companies WHERE domain = 'vendor.test'").first();
     expect(vendor.vendor).toBe(1);
-    const { events } = await getRankedEvents(env.DB);
+    const { events } = await getRankedEvents(env.DB, 1);
     const orl = events.find((e) => e.id === 'orl');
     expect(orl.counts).toEqual({ tierA: 2, tierB: 1, accountOnly: 0 });
     const bme = events.find((e) => e.id === 'bme');
@@ -128,5 +128,53 @@ describe('import review fixes', () => {
     const row = await env.DB.prepare("SELECT ep.role, ep.contact FROM event_people ep JOIN people p ON p.id = ep.person_id WHERE p.name = 'Dup Person'").first();
     expect(row).toEqual({ role: 'speaker', contact: 'verified_email' });
     expect(await count('event_people')).toBe(1);
+  });
+});
+
+describe('importing into a workspace', () => {
+  const TABLES = ['events', 'companies', 'people', 'event_people', 'event_companies', 'changes'];
+  const countIn = async (table, workspaceId) => (await env.DB.prepare(`SELECT COUNT(*) AS n FROM ${table} WHERE workspace_id = ?`).bind(workspaceId).first()).n;
+  const sqlFor = (workspaceId) => buildImportSql({ eventsCsv, leadsCsv, vendorsCsv }, { workspaceId });
+
+  it('writes every row into the requested workspace and leaves workspace 1 untouched', async () => {
+    await addEvent({ id: 'keep-me', name: 'Already here' });
+    const ws = await addWorkspace({ name: 'Imported team' });
+    await runSql(sqlFor(ws));
+    for (const table of TABLES) {
+      expect(await countIn(table, ws), `${table} rows in the new workspace`).toBeGreaterThan(0);
+    }
+    expect(await countIn('events', ws)).toBe(3);
+    for (const table of TABLES.filter((t) => t !== 'events')) expect(await countIn(table, 1), `${table} rows left in workspace 1`).toBe(0);
+    const kept = await env.DB.prepare('SELECT id FROM events WHERE workspace_id = 1').all();
+    expect(kept.results).toEqual([{ id: 'keep-me' }]);
+  });
+
+  it('resolves the people, companies and links inside the workspace only', async () => {
+    const ws = await addWorkspace();
+    await runSql(sqlFor(ws));
+    const { events } = await getRankedEvents(env.DB, ws);
+    expect(events.find((e) => e.id === 'orl').counts).toEqual({ tierA: 2, tierB: 1, accountOnly: 0 });
+    // (icp_config.version is a global key until 0005, so workspace 1 is checked by a count, not by ranking.)
+    expect(await countIn('events', 1)).toBe(0);
+  });
+
+  it('is idempotent per workspace: a second run changes no counts', async () => {
+    const ws = await addWorkspace();
+    await runSql(sqlFor(ws));
+    const first = await Promise.all(TABLES.map((t) => countIn(t, ws)));
+    expect(first[0]).toBe(3);
+    await runSql(sqlFor(ws));
+    expect(await Promise.all(TABLES.map((t) => countIn(t, ws)))).toEqual(first);
+  });
+
+  it('defaults to workspace 1', async () => {
+    await runSql(buildImportSql({ eventsCsv, leadsCsv, vendorsCsv }));
+    expect(await countIn('events', 1)).toBe(3);
+  });
+
+  it('refuses a workspace id that is not a positive whole number', () => {
+    for (const workspaceId of [0, -1, 1.5, '2', null, Number.NaN]) {
+      expect(() => buildImportSql({ eventsCsv, leadsCsv, vendorsCsv }, { workspaceId }), String(workspaceId)).toThrow(/workspace/i);
+    }
   });
 });

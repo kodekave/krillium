@@ -78,7 +78,10 @@ function eventRole(raw, hasPerson) {
   return 'attendee';
 }
 
-export function buildImport({ eventsCsv, leadsCsv, vendorsCsv }, { today = new Date().toISOString().slice(0, 10) } = {}) {
+// Every generated statement names workspace_id, so an import lands in one workspace and cannot touch another's rows.
+export function buildImport({ eventsCsv, leadsCsv, vendorsCsv }, { today = new Date().toISOString().slice(0, 10), workspaceId = 1 } = {}) {
+  if (!Number.isInteger(workspaceId) || workspaceId < 1) throw new Error('workspaceId must be a positive whole number');
+  const W = workspaceId;
   const out = [];
   const warnings = [];
   const events = toObjects(eventsCsv).map((e) => {
@@ -181,61 +184,61 @@ export function buildImport({ eventsCsv, leadsCsv, vendorsCsv }, { today = new D
 
   const companySub = (c) =>
     c.domain
-      ? `(SELECT id FROM companies WHERE domain = ${q(c.domain)})`
-      : `(SELECT id FROM companies WHERE name_key = ${q(c.nameKey)} ORDER BY id LIMIT 1)`;
+      ? `(SELECT id FROM companies WHERE workspace_id = ${W} AND domain = ${q(c.domain)})`
+      : `(SELECT id FROM companies WHERE workspace_id = ${W} AND name_key = ${q(c.nameKey)} ORDER BY id LIMIT 1)`;
   const personSub = (p) => {
-    if (p.email) return `(SELECT id FROM people WHERE email = ${q(p.email)})`;
-    if (p.linkedin) return `(SELECT id FROM people WHERE linkedin_url = ${q(p.linkedin)})`;
-    return `(SELECT id FROM people WHERE name = ${q(p.name)} AND company_id IS ${companySub(p.company)} ORDER BY id LIMIT 1)`;
+    if (p.email) return `(SELECT id FROM people WHERE workspace_id = ${W} AND email = ${q(p.email)})`;
+    if (p.linkedin) return `(SELECT id FROM people WHERE workspace_id = ${W} AND linkedin_url = ${q(p.linkedin)})`;
+    return `(SELECT id FROM people WHERE workspace_id = ${W} AND name = ${q(p.name)} AND company_id IS ${companySub(p.company)} ORDER BY id LIMIT 1)`;
   };
 
   for (const e of events) {
     const [lat, lon] = coordsFor(e);
     out.push(
-      `INSERT INTO events (id, name, organiser, url, city, country, lat, lon, start_date, end_date, source_url, last_checked, fit, public_names, timing, distance) VALUES (${[
-        q(e.id), q(e.name), q(e.organiser), q(e.url), q(e.city), q(e.country), q(lat), q(lon), q(e.start_date),
+      `INSERT INTO events (workspace_id, id, name, organiser, url, city, country, lat, lon, start_date, end_date, source_url, last_checked, fit, public_names, timing, distance) VALUES (${[
+        W, q(e.id), q(e.name), q(e.organiser), q(e.url), q(e.city), q(e.country), q(lat), q(lon), q(e.start_date),
         q(e.end_date), q(e.source_url), q(e.last_checked), q(num(e.fit)), q(num(e.public_names)), q(num(e.timing)), q(num(e.distance)),
-      ].join(', ')}) ON CONFLICT (id) DO UPDATE SET name = excluded.name, organiser = excluded.organiser, url = excluded.url, city = excluded.city, country = excluded.country, lat = excluded.lat, lon = excluded.lon, start_date = excluded.start_date, end_date = excluded.end_date, source_url = excluded.source_url, fit = excluded.fit, public_names = excluded.public_names, timing = excluded.timing, distance = excluded.distance;`,
+      ].join(', ')}) ON CONFLICT (workspace_id, id) DO UPDATE SET name = excluded.name, organiser = excluded.organiser, url = excluded.url, city = excluded.city, country = excluded.country, lat = excluded.lat, lon = excluded.lon, start_date = excluded.start_date, end_date = excluded.end_date, source_url = excluded.source_url, fit = excluded.fit, public_names = excluded.public_names, timing = excluded.timing, distance = excluded.distance;`,
     );
     out.push(
-      `INSERT INTO changes (event_id, kind, summary) SELECT ${q(e.id)}, 'imported', 'Imported from the Sheet' WHERE NOT EXISTS (SELECT 1 FROM changes WHERE event_id = ${q(e.id)} AND kind = 'imported');`,
+      `INSERT INTO changes (workspace_id, event_id, kind, summary) SELECT ${W}, ${q(e.id)}, 'imported', 'Imported from the Sheet' WHERE NOT EXISTS (SELECT 1 FROM changes WHERE workspace_id = ${W} AND event_id = ${q(e.id)} AND kind = 'imported');`,
     );
   }
 
   for (const c of companies.values()) {
     if (c.domain) {
       out.push(
-        `INSERT INTO companies (name, name_key, domain, vendor) VALUES (${q(c.name)}, ${q(c.nameKey)}, ${q(c.domain)}, ${c.vendor}) ON CONFLICT (domain) DO UPDATE SET name = excluded.name, name_key = excluded.name_key, vendor = MAX(companies.vendor, excluded.vendor);`,
+        `INSERT INTO companies (workspace_id, name, name_key, domain, vendor) VALUES (${W}, ${q(c.name)}, ${q(c.nameKey)}, ${q(c.domain)}, ${c.vendor}) ON CONFLICT (workspace_id, domain) DO UPDATE SET name = excluded.name, name_key = excluded.name_key, vendor = MAX(companies.vendor, excluded.vendor);`,
       );
     } else {
       out.push(
-        `INSERT INTO companies (name, name_key, vendor) SELECT ${q(c.name)}, ${q(c.nameKey)}, ${c.vendor} WHERE NOT EXISTS (SELECT 1 FROM companies WHERE name_key = ${q(c.nameKey)});`,
+        `INSERT INTO companies (workspace_id, name, name_key, vendor) SELECT ${W}, ${q(c.name)}, ${q(c.nameKey)}, ${c.vendor} WHERE NOT EXISTS (SELECT 1 FROM companies WHERE workspace_id = ${W} AND name_key = ${q(c.nameKey)});`,
       );
-      if (c.vendor) out.push(`UPDATE companies SET vendor = 1 WHERE name_key = ${q(c.nameKey)};`);
+      if (c.vendor) out.push(`UPDATE companies SET vendor = 1 WHERE workspace_id = ${W} AND name_key = ${q(c.nameKey)};`);
     }
   }
 
   for (const p of people) {
-    const cols = `(name, email, linkedin_url, company_id, title, persona, source_url, date_found, lawful_basis)`;
-    const vals = [q(p.name), q(p.email), q(p.linkedin), companySub(p.company), q(p.title), q(p.persona), q(p.source), q(today), q(LAWFUL_BASIS)].join(', ');
+    const cols = `(workspace_id, name, email, linkedin_url, company_id, title, persona, source_url, date_found, lawful_basis)`;
+    const vals = [W, q(p.name), q(p.email), q(p.linkedin), companySub(p.company), q(p.title), q(p.persona), q(p.source), q(today), q(LAWFUL_BASIS)].join(', ');
     const update = `SET name = excluded.name, title = excluded.title, persona = excluded.persona, company_id = excluded.company_id, source_url = excluded.source_url`;
     if (p.email) {
-      out.push(`INSERT INTO people ${cols} VALUES (${vals}) ON CONFLICT (email) DO UPDATE ${update}, linkedin_url = COALESCE(people.linkedin_url, excluded.linkedin_url);`);
+      out.push(`INSERT INTO people ${cols} VALUES (${vals}) ON CONFLICT (workspace_id, email) DO UPDATE ${update}, linkedin_url = COALESCE(people.linkedin_url, excluded.linkedin_url);`);
     } else if (p.linkedin) {
-      out.push(`INSERT INTO people ${cols} VALUES (${vals}) ON CONFLICT (linkedin_url) DO UPDATE ${update};`);
+      out.push(`INSERT INTO people ${cols} VALUES (${vals}) ON CONFLICT (workspace_id, linkedin_url) DO UPDATE ${update};`);
     } else {
-      out.push(`INSERT INTO people ${cols} SELECT ${vals} WHERE NOT EXISTS (SELECT 1 FROM people WHERE name = ${q(p.name)} AND company_id IS ${companySub(p.company)});`);
+      out.push(`INSERT INTO people ${cols} SELECT ${vals} WHERE NOT EXISTS (SELECT 1 FROM people WHERE workspace_id = ${W} AND name = ${q(p.name)} AND company_id IS ${companySub(p.company)});`);
     }
   }
 
   for (const a of appearances.values()) {
     out.push(
-      `INSERT INTO event_people (event_id, person_id, role, fit, contact) VALUES (${q(a.event.id)}, ${personSub(a.person)}, ${q(a.role)}, ${a.fit}, ${q(a.contact)}) ON CONFLICT (event_id, person_id) DO UPDATE SET role = excluded.role, fit = excluded.fit, contact = excluded.contact;`,
+      `INSERT INTO event_people (workspace_id, event_id, person_id, role, fit, contact) VALUES (${W}, ${q(a.event.id)}, ${personSub(a.person)}, ${q(a.role)}, ${a.fit}, ${q(a.contact)}) ON CONFLICT (workspace_id, event_id, person_id) DO UPDATE SET role = excluded.role, fit = excluded.fit, contact = excluded.contact;`,
     );
   }
   for (const ec of eventCompanies) {
     out.push(
-      `INSERT OR IGNORE INTO event_companies (event_id, company_id, source_url) VALUES (${q(ec.event.id)}, ${companySub(ec.company)}, ${q(ec.source)});`,
+      `INSERT OR IGNORE INTO event_companies (workspace_id, event_id, company_id, source_url) VALUES (${W}, ${q(ec.event.id)}, ${companySub(ec.company)}, ${q(ec.source)});`,
     );
   }
   return { sql: `${out.join('\n')}\n`, warnings };

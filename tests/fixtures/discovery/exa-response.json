@@ -7,7 +7,8 @@
       "url": "https://www.ssonetwork.com/events-ssoweek",
       "publishedDate": "2026-09-14T00:00:00.000Z",
       "author": null,
-      "text": "SSOW Orlando 2027. Shared Services & Outsourcing Week, Orlando, Florida. 8-11 March 2027."
+      "text": "SSOW Orlando 2027. Shared Services & Outsourcing Week, Orlando, Florida. 8-11 March 2027.",
+      "summary": "{\"isEvent\":true,\"name\":\"SSOW Orlando\",\"organiser\":\"SSON\",\"startDate\":\"2027-03-08\",\"endDate\":\"2027-03-11\",\"city\":\"Orlando\",\"country\":\"United States\",\"online\":false,\"cancelled\":false,\"quotes\":{\"name\":\"SSOW Orlando 2027\",\"dates\":\"8-11 March 2027\",\"city\":\"Orlando, Florida\"}}"
     },
     {
       "id": "https://www.10times.com/ssow-orlando",
@@ -15,7 +16,8 @@
       "url": "https://www.10times.com/ssow-orlando",
       "publishedDate": null,
       "author": null,
-      "text": "Shared Services and Outsourcing Week Orlando. Mar 8 - 11, 2027. Orlando, USA."
+      "text": "Shared Services and Outsourcing Week Orlando. Mar 8 - 11, 2027. Orlando, USA.",
+      "summary": "{\"isEvent\":true,\"name\":\"Shared Services and Outsourcing Week Orlando\",\"organiser\":null,\"startDate\":\"2027-03-08\",\"endDate\":\"2027-03-11\",\"city\":\"Orlando\",\"country\":\"USA\",\"online\":false,\"cancelled\":false,\"quotes\":{\"name\":\"Shared Services and Outsourcing Week Orlando\",\"dates\":\"Mar 8 - 11, 2027\",\"city\":\"Orlando, USA\"}}"
     },
     {
       "id": "https://example.test/empty",
@@ -23,7 +25,13 @@
       "url": "https://example.test/empty",
       "publishedDate": null,
       "author": null,
-      "text": "   "
+      "text": "   ",
+      "summary": "{\"isEvent\":false}"
     }
-  ]
+  ],
+  "costDollars": {
+    "total": 0.027,
+    "search": { "neural": 0.007 },
+    "contents": { "text": 0.01, "summary": 0.01 }
+  }
 }

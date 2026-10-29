@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import {
-  buildGroup, cluster, decide, filterReason, matchesTracked, rejectionKey, sameEdition,
+  AGGREGATOR_DOMAINS, buildGroup, cluster, decide, filterReason, matchesTracked, rejectionKey, sameEdition,
 } from '../../site/js/shared/discovery.js';
+import { registrableDomain } from '../../site/js/shared/names.js';
 
 const NOW = Date.parse('2026-10-29T12:00:00Z');
 
@@ -165,6 +166,21 @@ describe('cluster', () => {
   });
 });
 
+describe('AGGREGATOR_DOMAINS', () => {
+  it('lists each site once, as a plain lowercase registrable domain', () => {
+    expect(new Set(AGGREGATOR_DOMAINS).size).toBe(AGGREGATOR_DOMAINS.length);
+    for (const domain of AGGREGATOR_DOMAINS) {
+      expect(domain).toBe(domain.toLowerCase());
+      expect(registrableDomain(`https://${domain}/`), domain).toBe(domain);
+    }
+  });
+
+  it('keeps the original sites and adds the directories and ticketing sites checked on 2026-10-29', () => {
+    expect(AGGREGATOR_DOMAINS).toEqual(expect.arrayContaining(['10times.com', 'allevents.in', 'eventbrite.com', 'luma.com', 'confs.tech', 'eventseye.com', 'tradefairdates.com', 'meetup.com']));
+    expect(AGGREGATOR_DOMAINS).toEqual(expect.arrayContaining(['tsnn.com', 'auma.de', 'eventzilla.net', 'townscript.com']));
+  });
+});
+
 describe('matching rules', () => {
   it('sameEdition needs a similar name, a compatible place and dates within 60 days', () => {
     expect(sameEdition(obs(), obs({ name: 'SSOW Orlando 2027', startDate: '2027-04-20' }))).toBe(true);
@@ -180,6 +196,16 @@ describe('matching rules', () => {
 });
 
 describe('buildGroup', () => {
+  it('collects the sectors of every observation, sorted and without repeats', () => {
+    const g = buildGroup([
+      obs({ sectors: ['pharma'] }),
+      obs({ url: 'https://b.example/x', sourceDomain: 'b.example', sectors: ['banking', 'pharma'] }),
+      obs({ url: 'https://c.example/x', sourceDomain: 'c.example' }),
+    ]);
+    expect(g.sectors).toEqual(['banking', 'pharma']);
+    expect(buildGroup([obs()]).sectors).toEqual([]);
+  });
+
   it('uses the most common values and breaks date ties with the earliest', () => {
     const g = buildGroup([
       obs({ startDate: '2027-03-09', city: 'Orlando' }), obs({ startDate: '2027-03-08', sourceDomain: 'a.com' }),

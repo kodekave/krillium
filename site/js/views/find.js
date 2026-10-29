@@ -1,7 +1,7 @@
 // Find events: search the web and open event lists, then review what was found. Two tabs, Search and Inbox.
 import { h, safeUrl } from '../dom.js';
 import { emptyState } from '../empty-state.js';
-import { FILTER_LABELS, driveRun, groupItems, progressText } from '../find-state.js';
+import { FILTER_LABELS, driveFill, driveRun, groupItems, keysNotice, mergeItems, progressText } from '../find-state.js';
 import { formatRange } from '../format.js';
 
 const today = () => new Date().toISOString().slice(0, 10);
@@ -24,8 +24,8 @@ const SETTING_FIELDS = [
   ['dayCapUsd', 'Spend cap per day (USD)', 0.5],
   ['maxSearches', 'Searches per run', 1],
   ['maxPages', 'Pages per run', 10],
-  ['priceInPerMtok', 'Model price in (USD per million tokens)', 0.1],
-  ['priceOutPerMtok', 'Model price out (USD per million tokens)', 0.1],
+  ['priceInPerMtok', 'Claude price in (USD per million tokens)', 0.1],
+  ['priceOutPerMtok', 'Claude price out (USD per million tokens)', 0.1],
 ];
 
 // The grouped results of a run. Exported so the page can be checked with sample data.
@@ -68,28 +68,30 @@ export function renderResults(items, { openEvent, undo, goToInbox }) {
 
 export function mount(root, ctx) {
   let disposed = false;
+  let sharedKeys = true; // whether this workspace may use the Worker's own search keys (from the settings answer)
   let running = false;
   let controller = null;
   let run = null;
   let items = [];
   let inboxCount = 0;
   const admin = () => ctx.session.getUser()?.role === 'admin';
-  const selectedTopics = new Set();
+  const selectedSectors = new Set();
 
   const params = new URLSearchParams(location.hash.split('?')[1] ?? '');
   const query = h('input', { type: 'search', name: 'query', required: true, minlength: 2, maxlength: 200, placeholder: 'Shared services events in Europe this autumn', value: params.get('q') ?? '' });
   const from = h('input', { type: 'date', value: today() });
   const to = h('input', { type: 'date', value: yearAhead() });
   const region = h('input', { type: 'text', maxlength: 60, placeholder: 'Optional, for example Europe' });
-  const topicRow = h('div', { class: 'find-topics' });
+  const sectorRow = h('div', { class: 'find-topics', role: 'group', 'aria-label': 'Sectors to search' });
   const startBtn = h('button', { type: 'submit', class: 'btn btn-primary' }, 'Search');
+  const fillBtn = h('button', { type: 'button', class: 'btn', title: 'Search each ticked sector in turn, with the dates and region above', onclick: () => fillMap() }, 'Fill the map');
   const stopBtn = h('button', { type: 'button', class: 'btn', hidden: true, onclick: () => controller?.abort() }, 'Stop');
   const status = h('p', { class: 'muted find-status', role: 'status', 'aria-live': 'polite' });
   const results = h('div', { class: 'find-results' });
   const form = h('form', { class: 'find-form glass', onsubmit: startSearch },
     h('label', { class: 'field field-grow' }, 'What are you looking for?', query),
     h('div', { class: 'fields' }, h('label', { class: 'field' }, 'From', from), h('label', { class: 'field' }, 'To', to), h('label', { class: 'field' }, 'Region, a hint for the search', region)),
-    topicRow, h('div', { class: 'find-actions' }, startBtn, stopBtn));
+    sectorRow, h('div', { class: 'find-actions' }, startBtn, fillBtn, stopBtn));
   const settingsBox = h('details', { class: 'find-settings glass' });
 
   const searchPane = h('div', {}, form, status, results, settingsBox);
@@ -138,9 +140,8 @@ export function mount(root, ctx) {
     return emptyState({
       art: 'load-error',
       title: 'Search is not set up yet',
-      text: admin()
-        ? `Add ${missing.join(' and ')} to the Worker as secrets, then reload this page. DEPLOY.md has the steps.`
-        : 'An admin needs to finish setting up search.',
+      // A workspace the operator has not given the shared keys is told it needs its own; see keysNotice.
+      text: keysNotice({ missing, sharedKeys, admin: admin() }),
     });
   }
 
@@ -156,6 +157,7 @@ export function mount(root, ctx) {
   const setBusy = (busy) => {
     running = busy;
     startBtn.disabled = busy;
+    fillBtn.disabled = busy;
     stopBtn.hidden = !busy;
   };
 
@@ -165,7 +167,7 @@ export function mount(root, ctx) {
     setBusy(true);
     results.replaceChildren();
     status.textContent = 'Starting the search.';
-    const body = { query: query.value.trim(), from: from.value || undefined, to: to.value || undefined, topics: [...selectedTopics] };
+    const body = { query: query.value.trim(), from: from.value || undefined, to: to.value || undefined, sectors: [...selectedSectors] };
     if (region.value.trim()) body.region = region.value.trim();
     const started = await ctx.api.post('/api/search', body);
     if (disposed) return;
@@ -196,6 +198,61 @@ export function mount(root, ctx) {
     loadInbox();
   }
 
+  // Fill the map: one search per ticked sector, in turn. Results from all of them are shown together, once each.
+  async function fillMap() {
+    if (running) return;
+    const chosen = ctx.sectors.list().filter((s) => s.enabled && selectedSectors.has(s.id));
+    if (!chosen.length) {
+      status.textContent = 'Tick at least one sector to fill the map.';
+      return;
+    }
+    setBusy(true);
+    results.replaceChildren();
+    status.textContent = 'Starting.';
+    const kept = [];
+    let pagesBefore = 0;
+    let active = null;
+    let label = '';
+    const pagesRead = () => pagesBefore + (active?.status === 'running' ? active.pages : 0);
+    controller = new AbortController();
+    const outcome = await driveFill({
+      api: ctx.api, sectors: chosen, from: from.value || undefined, to: to.value || undefined, region: region.value.trim() || undefined, signal: controller.signal,
+      onSector: ({ sector, index, total }) => {
+        label = `${sector.name}, ${index + 1} of ${total}`;
+        status.textContent = `Searching ${label}.`;
+      },
+      onUpdate: ({ run: current, items: found }) => {
+        if (disposed) return;
+        active = current;
+        if (current.status !== 'running') {
+          kept.push(...found);
+          pagesBefore += current.pages;
+        }
+        items = mergeItems(kept, found);
+        status.textContent = `${label}. ${progressText({ pages: pagesRead() }, items)}.`;
+        const shown = renderResults(items, handlers);
+        if (shown) results.replaceChildren(shown);
+      },
+    });
+    // A run that stopped or failed here would stay "running" on the server and block the next search for a quarter of an hour.
+    if ((!outcome.ok || outcome.stopped) && active?.status === 'running') ctx.api.post(`/api/search/${active.id}/cancel`, {});
+    if (disposed) return;
+    setBusy(false);
+    const summary = progressText({ pages: pagesRead() }, items);
+    if (!outcome.ok) {
+      if ([409, 423, 503].includes(outcome.status) || outcome.errors) showStartError(outcome);
+      else status.textContent = `Fill the map stopped. ${outcome.error} ${summary}.`;
+    } else if (outcome.stopped) {
+      status.textContent = `Stopped. ${summary}.`;
+    } else if (outcome.ended) {
+      status.textContent = `Stopped after ${outcome.done.length} of ${chosen.length} sectors. ${outcome.run.note ?? ''} ${summary}.`.replace(/\s+/g, ' ');
+    } else {
+      status.textContent = `Filled the map from ${chosen.length} ${chosen.length === 1 ? 'sector' : 'sectors'}. ${summary}.`;
+      if (!results.hasChildNodes()) results.replaceChildren(emptyState({ art: 'no-matches', title: 'No events matched', text: 'Try a wider date range or another region.' }));
+    }
+    loadInbox();
+  }
+
   function card(item) {
     const note = h('p', { class: 'small', role: 'status' });
     const approve = h('button', { type: 'button', class: 'btn btn-primary', onclick: () => act('approve') }, 'Approve');
@@ -203,6 +260,7 @@ export function mount(root, ctx) {
     const body = h('article', { class: 'find-card glass' },
       h('h3', {}, item.name),
       h('p', { class: 'muted' }, [where(item), item.organiser].filter(Boolean).join(', ')),
+      item.sectors?.length ? h('p', { class: 'muted small' }, `Sectors: ${item.sectors.map(ctx.sectors.name).join(', ')}`) : null,
       item.conflict ? h('p', { class: 'find-conflict' }, `${item.conflict[0].toUpperCase()}${item.conflict.slice(1)}.`) : h('p', { class: 'muted small' }, item.reason),
       h('div', { class: 'find-sources' }, item.sources.map((s) => (safeUrl(s.url)
         ? h('a', { class: 'chip', href: s.url, target: '_blank', rel: 'noopener noreferrer', title: s.quote ?? s.domain }, s.domain)
@@ -230,6 +288,7 @@ export function mount(root, ctx) {
   }
 
   async function loadInbox() {
+    await ctx.sectors.load();
     const res = await ctx.api.get('/api/inbox');
     if (disposed || res.status === 401) return;
     if (!res.ok) {
@@ -246,32 +305,37 @@ export function mount(root, ctx) {
   function renderSettings(settings) {
     const canEdit = admin();
     const inputs = Object.fromEntries(SETTING_FIELDS.map(([key, , step]) => [key, h('input', { type: 'number', min: 0, step, value: settings[key], disabled: !canEdit })]));
-    const topics = h('input', { type: 'text', value: settings.topics.join(', '), disabled: !canEdit });
     const paused = h('input', { type: 'checkbox', checked: settings.paused, disabled: !canEdit });
     const note = h('p', { class: 'small', role: 'status' });
     const save = h('button', { type: 'button', class: 'btn btn-primary', onclick: async () => {
-      const patch = { paused: paused.checked, topics: topics.value.split(',').map((t) => t.trim()).filter(Boolean) };
+      const patch = { paused: paused.checked };
       for (const [key] of SETTING_FIELDS) patch[key] = Number(inputs[key].value);
       const res = await ctx.api.put('/api/discovery/settings', patch);
       note.textContent = res.ok ? 'Saved.' : (res.errors?.join(' ') ?? res.error ?? 'That did not save. Try again.');
     } }, 'Save');
-    settingsBox.replaceChildren(h('summary', {}, 'Budget and topics'),
+    // replaceChildren turns a null into the text "null", so the empty slots are filtered out.
+    settingsBox.replaceChildren(...[h('summary', {}, 'Budget'),
       canEdit ? null : h('p', { class: 'muted small' }, 'Only an admin can change these.'),
+      h('p', { class: 'muted small' }, settings.reader === 'claude'
+        ? 'Claude reads the pages, so the Claude prices below apply.'
+        : 'Exa reads the pages. If an Anthropic key is added to the Worker, Claude reads them instead and the Claude prices below apply.'),
+      h('p', { class: 'muted small' }, 'Sectors and their topics are edited in the ', h('a', { href: '#/icp' }, 'ICP brain'), '.'),
       h('div', { class: 'fields' }, SETTING_FIELDS.map(([key, label]) => h('label', { class: 'field' }, label, inputs[key])),
-        h('label', { class: 'field field-grow' }, 'Topics, separated by commas', topics),
         h('label', { class: 'field' }, h('span', {}, 'Pause all searches'), paused)),
-      canEdit ? h('div', { class: 'find-actions' }, save, note) : null);
+      canEdit ? h('div', { class: 'find-actions' }, save, note) : null].filter(Boolean));
   }
 
-  function renderTopics(settings) {
-    selectedTopics.clear();
-    settings.topics.forEach((t) => selectedTopics.add(t));
-    topicRow.replaceChildren(...settings.topics.map((topic) => {
-      const chip = h('button', { type: 'button', class: 'chip', 'aria-pressed': 'true', onclick: () => {
-        if (selectedTopics.has(topic)) selectedTopics.delete(topic);
-        else selectedTopics.add(topic);
-        chip.setAttribute('aria-pressed', String(selectedTopics.has(topic)));
-      } }, topic);
+  // One chip per switched-on sector, all ticked to begin with. Each shows its topics when hovered.
+  function renderSectors() {
+    const enabled = ctx.sectors.list().filter((s) => s.enabled);
+    selectedSectors.clear();
+    enabled.forEach((s) => selectedSectors.add(s.id));
+    sectorRow.replaceChildren(...enabled.map((sector) => {
+      const chip = h('button', { type: 'button', class: 'chip', 'aria-pressed': 'true', title: sector.topics.join(', '), onclick: () => {
+        if (selectedSectors.has(sector.id)) selectedSectors.delete(sector.id);
+        else selectedSectors.add(sector.id);
+        chip.setAttribute('aria-pressed', String(selectedSectors.has(sector.id)));
+      } }, sector.name);
       return chip;
     }));
   }
@@ -279,10 +343,13 @@ export function mount(root, ctx) {
   async function loadSettings() {
     const res = await ctx.api.get('/api/discovery/settings');
     if (disposed || !res.ok) return;
-    renderTopics(res.data);
+    ctx.sectors.set(res.data.sectors);
+    sharedKeys = res.data.sharedKeys !== false;
+    renderSectors();
     renderSettings(res.data);
     if (res.data.missing?.length) {
       startBtn.disabled = true;
+      fillBtn.disabled = true;
       results.replaceChildren(notSetUp(res.data.missing));
     }
   }

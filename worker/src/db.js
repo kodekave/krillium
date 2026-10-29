@@ -1,27 +1,42 @@
 import { DEFAULT_CONFIG, leadScore, rankEvents, tierFor } from '../../site/js/shared/scoring.js';
+import { wsId } from './scope.js';
 
-export async function getActiveConfig(db) {
+// Every function here takes the workspace id right after `db`, and every statement names workspace_id for each
+// workspace table it touches, joins included.
+export async function getActiveConfig(db, workspaceId) {
+  wsId(workspaceId);
   const read = () =>
-    db.prepare('SELECT version, json FROM icp_config ORDER BY version DESC LIMIT 1').first();
+    db.prepare('SELECT version, json FROM icp_config WHERE workspace_id = ? ORDER BY version DESC LIMIT 1').bind(workspaceId).first();
   let row = await read();
   if (!row) {
     await db
-      .prepare('INSERT OR IGNORE INTO icp_config (version, json, created_by) VALUES (1, ?, ?)')
-      .bind(JSON.stringify({ ...DEFAULT_CONFIG, version: 1 }), 'system')
+      .prepare('INSERT OR IGNORE INTO icp_config (workspace_id, version, json, created_by) VALUES (?, 1, ?, ?)')
+      .bind(workspaceId, JSON.stringify({ ...DEFAULT_CONFIG, version: 1 }), 'system')
       .run();
     row = await read();
   }
   return { ...JSON.parse(row.json), version: row.version };
 }
 
-export async function saveConfig(db, cfg, user) {
-  const current = await getActiveConfig(db);
+export async function saveConfig(db, workspaceId, cfg, user) {
+  wsId(workspaceId);
+  const current = await getActiveConfig(db, workspaceId);
   const version = current.version + 1;
   await db
-    .prepare('INSERT INTO icp_config (version, json, created_by) VALUES (?, ?, ?)')
-    .bind(version, JSON.stringify({ ...cfg, version }), user)
+    .prepare('INSERT INTO icp_config (workspace_id, version, json, created_by) VALUES (?, ?, ?, ?)')
+    .bind(workspaceId, version, JSON.stringify({ ...cfg, version }), user)
     .run();
   return version;
+}
+
+// The sector ids stored on an event or a candidate as JSON; anything unreadable counts as no sectors.
+export function parseSectors(value) {
+  try {
+    const list = JSON.parse(value ?? '[]');
+    return Array.isArray(list) ? list.filter((id) => typeof id === 'string') : [];
+  } catch {
+    return [];
+  }
 }
 
 const DAY = 86400000;
@@ -45,27 +60,29 @@ export function freshnessFor(lastChecked, lastRealChange, now) {
 
 const RADAR_SQL = `
   SELECT e.id, e.name, e.organiser, e.city, e.country, e.lat, e.lon, e.start_date, e.end_date,
-    e.source_url, e.last_checked, e.origin, e.auto_added,
+    e.source_url, e.last_checked, e.origin, e.auto_added, e.sectors,
     COALESCE(e.fit, 0) + COALESCE(e.public_names, 0) + COALESCE(e.timing, 0) + COALESCE(e.distance, 0) AS event_score,
-    (SELECT COUNT(*) FROM event_companies ec JOIN companies c ON c.id = ec.company_id
-       WHERE ec.event_id = e.id AND c.vendor = 0
-         AND NOT EXISTS (SELECT 1 FROM event_people ep JOIN people p ON p.id = ep.person_id
-                         WHERE ep.event_id = ec.event_id AND p.company_id = ec.company_id)) AS account_only,
-    (SELECT MAX(ch.at) FROM changes ch WHERE ch.event_id = e.id AND ch.kind != 'imported') AS last_real_change
-  FROM events e`;
+    (SELECT COUNT(*) FROM event_companies ec JOIN companies c ON c.id = ec.company_id AND c.workspace_id = ec.workspace_id
+       WHERE ec.workspace_id = e.workspace_id AND ec.event_id = e.id AND c.vendor = 0
+         AND NOT EXISTS (SELECT 1 FROM event_people ep JOIN people p ON p.id = ep.person_id AND p.workspace_id = ep.workspace_id
+                         WHERE ep.workspace_id = ec.workspace_id AND ep.event_id = ec.event_id AND p.company_id = ec.company_id)) AS account_only,
+    (SELECT MAX(ch.at) FROM changes ch WHERE ch.workspace_id = e.workspace_id AND ch.event_id = e.id AND ch.kind != 'imported') AS last_real_change
+  FROM events e
+  WHERE e.workspace_id = ?`;
 
 const LEADS_SQL = `
   SELECT ep.event_id, ep.fit, ep.role, ep.contact, p.persona
-  FROM event_people ep JOIN people p ON p.id = ep.person_id
-  LEFT JOIN companies c ON c.id = p.company_id
-  WHERE COALESCE(c.vendor, 0) = 0`;
+  FROM event_people ep JOIN people p ON p.id = ep.person_id AND p.workspace_id = ep.workspace_id
+  LEFT JOIN companies c ON c.id = p.company_id AND c.workspace_id = p.workspace_id
+  WHERE ep.workspace_id = ? AND COALESCE(c.vendor, 0) = 0`;
 
 const leadInputs = (r) => ({ fit: r.fit ?? 0, persona: r.persona ?? null, eventRole: r.role ?? 'attendee', contact: r.contact ?? 'none' });
 
-export async function getRankedEvents(db, now = Date.now()) {
-  const cfg = await getActiveConfig(db);
-  const { results } = await db.prepare(RADAR_SQL).all();
-  const leadRows = (await db.prepare(LEADS_SQL).all()).results;
+export async function getRankedEvents(db, workspaceId, now = Date.now()) {
+  wsId(workspaceId);
+  const cfg = await getActiveConfig(db, workspaceId);
+  const { results } = await db.prepare(RADAR_SQL).bind(workspaceId).all();
+  const leadRows = (await db.prepare(LEADS_SQL).bind(workspaceId).all()).results;
   const leadsByEvent = new Map();
   for (const r of leadRows) leadsByEvent.set(r.event_id, [...(leadsByEvent.get(r.event_id) ?? []), leadInputs(r)]);
   const events = results.map((r) => ({
@@ -85,13 +102,15 @@ export async function getRankedEvents(db, now = Date.now()) {
     lastChecked: r.last_checked,
     origin: r.origin ?? 'import',
     autoAdded: Boolean(r.auto_added),
+    sectors: parseSectors(r.sectors),
     freshness: freshnessFor(r.last_checked, r.last_real_change, now),
   }));
   return { cfg, events: rankEvents(events, cfg) };
 }
 
-export async function getEventDetail(db, id, user = null, now = Date.now()) {
-  const { cfg, events } = await getRankedEvents(db, now);
+export async function getEventDetail(db, workspaceId, id, user = null, now = Date.now()) {
+  wsId(workspaceId);
+  const { cfg, events } = await getRankedEvents(db, workspaceId, now);
   const event = events.find((e) => e.id === id);
   if (!event) return null;
 
@@ -99,11 +118,11 @@ export async function getEventDetail(db, id, user = null, now = Date.now()) {
     await db
       .prepare(
         `SELECT c.name AS company, c.domain, p.name AS person, p.title, p.persona, ep.role, ep.fit, ep.contact, p.source_url
-         FROM event_people ep JOIN people p ON p.id = ep.person_id
-         LEFT JOIN companies c ON c.id = p.company_id
-         WHERE ep.event_id = ? AND COALESCE(c.vendor, 0) = 0`,
+         FROM event_people ep JOIN people p ON p.id = ep.person_id AND p.workspace_id = ep.workspace_id
+         LEFT JOIN companies c ON c.id = p.company_id AND c.workspace_id = p.workspace_id
+         WHERE ep.workspace_id = ? AND ep.event_id = ? AND COALESCE(c.vendor, 0) = 0`,
       )
-      .bind(id)
+      .bind(workspaceId, id)
       .all()
   ).results
     .map((r) => ({ ...r, score: leadScore(leadInputs(r), cfg) }))
@@ -113,33 +132,33 @@ export async function getEventDetail(db, id, user = null, now = Date.now()) {
     await db
       .prepare(
         `SELECT c.name AS company, c.domain, ec.source_url
-         FROM event_companies ec JOIN companies c ON c.id = ec.company_id
-         WHERE ec.event_id = ? AND c.vendor = 0
-           AND NOT EXISTS (SELECT 1 FROM event_people ep JOIN people p ON p.id = ep.person_id
-                           WHERE ep.event_id = ec.event_id AND p.company_id = ec.company_id)
+         FROM event_companies ec JOIN companies c ON c.id = ec.company_id AND c.workspace_id = ec.workspace_id
+         WHERE ec.workspace_id = ? AND ec.event_id = ? AND c.vendor = 0
+           AND NOT EXISTS (SELECT 1 FROM event_people ep JOIN people p ON p.id = ep.person_id AND p.workspace_id = ep.workspace_id
+                           WHERE ep.workspace_id = ec.workspace_id AND ep.event_id = ec.event_id AND p.company_id = ec.company_id)
          ORDER BY c.name`,
       )
-      .bind(id)
+      .bind(workspaceId, id)
       .all()
   ).results;
   const vendor = await db
     .prepare(
-      `SELECT COUNT(*) AS n FROM event_companies ec JOIN companies c ON c.id = ec.company_id
-       WHERE ec.event_id = ? AND c.vendor = 1`,
+      `SELECT COUNT(*) AS n FROM event_companies ec JOIN companies c ON c.id = ec.company_id AND c.workspace_id = ec.workspace_id
+       WHERE ec.workspace_id = ? AND ec.event_id = ? AND c.vendor = 1`,
     )
-    .bind(id)
+    .bind(workspaceId, id)
     .first();
   const history = (
     await db
-      .prepare('SELECT at, kind, summary, source_url FROM changes WHERE event_id = ? ORDER BY at DESC, id DESC LIMIT 20')
-      .bind(id)
+      .prepare('SELECT at, kind, summary, source_url FROM changes WHERE workspace_id = ? AND event_id = ? ORDER BY at DESC, id DESC LIMIT 20')
+      .bind(workspaceId, id)
       .all()
   ).results.map((h) => ({ at: h.at, kind: h.kind, summary: h.summary, sourceUrl: h.source_url }));
 
   const mine = user
     ? await db
-        .prepare('SELECT choice, reason, note, at FROM decisions WHERE event_id = ? AND user = ? ORDER BY at DESC, id DESC LIMIT 1')
-        .bind(id, user)
+        .prepare('SELECT choice, reason, note, at FROM decisions WHERE workspace_id = ? AND event_id = ? AND user = ? ORDER BY at DESC, id DESC LIMIT 1')
+        .bind(workspaceId, id, user)
         .first()
     : null;
 
@@ -159,7 +178,7 @@ export async function getEventDetail(db, id, user = null, now = Date.now()) {
     url,
   }));
   // Pages that discovery found for this event; the drawer prints each as "label: host".
-  const found = (await db.prepare('SELECT url FROM event_sources WHERE event_id = ? ORDER BY added_at, url').bind(id).all()).results;
+  const found = (await db.prepare('SELECT url FROM event_sources WHERE workspace_id = ? AND event_id = ? ORDER BY added_at, url').bind(workspaceId, id).all()).results;
   const listed = new Set(known.map((s) => s.url));
   const sources = [...known, ...found.filter((f) => !listed.has(f.url)).map((f) => ({ label: 'Found by search', url: f.url }))].slice(0, 12);
 
@@ -177,14 +196,16 @@ export async function getEventDetail(db, id, user = null, now = Date.now()) {
   return { ...event, reasons, accounts, sources, history, vendorCount, vendorShare, myDecision: mine ?? null };
 }
 
-export async function getFeed(db, limit = 50) {
+export async function getFeed(db, workspaceId, limit = 50) {
+  wsId(workspaceId);
   const { results } = await db
     .prepare(
       `SELECT ch.id, ch.event_id, e.name AS event_name, ch.kind, ch.summary, ch.source_url, ch.at
-       FROM changes ch LEFT JOIN events e ON e.id = ch.event_id
+       FROM changes ch LEFT JOIN events e ON e.id = ch.event_id AND e.workspace_id = ch.workspace_id
+       WHERE ch.workspace_id = ?
        ORDER BY ch.at DESC, ch.id DESC LIMIT ?`,
     )
-    .bind(limit)
+    .bind(workspaceId, limit)
     .all();
   return results.map((r) => ({
     id: r.id, eventId: r.event_id, eventName: r.event_name, kind: r.kind,
@@ -192,27 +213,30 @@ export async function getFeed(db, limit = 50) {
   }));
 }
 
-export async function getGraph(db) {
-  const cfg = await getActiveConfig(db);
+export async function getGraph(db, workspaceId) {
+  wsId(workspaceId);
+  const cfg = await getActiveConfig(db, workspaceId);
   const people = (
     await db
       .prepare(
         `SELECT ep.event_id, c.name AS company, c.domain, p.persona, ep.role, ep.fit, ep.contact
-         FROM event_people ep JOIN people p ON p.id = ep.person_id
-         LEFT JOIN companies c ON c.id = p.company_id
-         WHERE COALESCE(c.vendor, 0) = 0`,
+         FROM event_people ep JOIN people p ON p.id = ep.person_id AND p.workspace_id = ep.workspace_id
+         LEFT JOIN companies c ON c.id = p.company_id AND c.workspace_id = p.workspace_id
+         WHERE ep.workspace_id = ? AND COALESCE(c.vendor, 0) = 0`,
       )
+      .bind(workspaceId)
       .all()
   ).results;
   const solo = (
     await db
       .prepare(
         `SELECT ec.event_id, c.name AS company, c.domain
-         FROM event_companies ec JOIN companies c ON c.id = ec.company_id
-         WHERE c.vendor = 0
-           AND NOT EXISTS (SELECT 1 FROM event_people ep JOIN people p ON p.id = ep.person_id
-                           WHERE ep.event_id = ec.event_id AND p.company_id = ec.company_id)`,
+         FROM event_companies ec JOIN companies c ON c.id = ec.company_id AND c.workspace_id = ec.workspace_id
+         WHERE ec.workspace_id = ? AND c.vendor = 0
+           AND NOT EXISTS (SELECT 1 FROM event_people ep JOIN people p ON p.id = ep.person_id AND p.workspace_id = ep.workspace_id
+                           WHERE ep.workspace_id = ec.workspace_id AND ep.event_id = ec.event_id AND p.company_id = ec.company_id)`,
       )
+      .bind(workspaceId)
       .all()
   ).results;
   const accountsByEvent = {};

@@ -1,7 +1,9 @@
 import { h } from '../dom.js';
 import { emptyState } from '../empty-state.js';
+import { firstRunCard } from '../first-run.js';
 import { daysUntil, formatRange, monthsSpan } from '../format.js';
 import { createMap } from '../map-canvas.js';
+import { filterEvents } from '../filters.js';
 import { dateWindow } from '../map-geometry.js';
 
 const STATUS_LABEL = { 'must-attend': 'Must-attend', consider: 'Consider', watch: 'Watch' };
@@ -17,13 +19,16 @@ export function mount(root, ctx) {
   let range = [0, 0];
   let map = null;
   let view = 'events';
+  let sector = 'all';
 
   const stage = h('div', { class: 'radar' });
   const hud = h('div', { class: 'radar-hud' });
   const card = h('div', { class: 'hover-card glass', hidden: true, role: 'status' });
   const summary = h('div', { class: 'hud-panel hud-summary glass' });
+  // Shown once the sector list has loaded; it filters the pins, the ranked list and the summary together.
+  const sectorSelect = h('select', { class: 'seg-select', 'aria-label': 'Sector', hidden: true, onchange: (ev) => { sector = ev.target.value; refresh(); } });
   const presets = h('div', { class: 'hud-panel hud-presets glass', role: 'group', 'aria-label': 'Map view' },
-    PRESETS.map(([id, label]) => h('button', { type: 'button', class: 'seg', 'data-view': id, 'aria-pressed': id === view, onclick: () => setView(id) }, label)));
+    PRESETS.map(([id, label]) => h('button', { type: 'button', class: 'seg', 'data-view': id, 'aria-pressed': id === view, onclick: () => setView(id) }, label)), sectorSelect);
   const rank = h('aside', { class: 'hud-panel hud-rank glass', 'aria-label': 'Ranked events' });
   const timeline = h('div', { class: 'hud-panel hud-timeline glass' });
   const message = h('div', { class: 'hud-panel hud-message glass', hidden: true });
@@ -47,13 +52,15 @@ export function mount(root, ctx) {
   function renderSummary(visible) {
     const must = visible.filter((e) => e.status === 'must-attend');
     const next = must.map((e) => ({ e, d: daysUntil(e.startDate) })).filter((x) => x.d !== null && x.d >= 0).sort((a, b) => a.d - b.d)[0];
-    summary.replaceChildren(
+    // replaceChildren() prints a null argument as the text "null": with no upcoming must-attend event (a new workspace's
+    // sample events have no buyers) the empty slot is filtered out.
+    summary.replaceChildren(...[
       h('h1', {}, 'Radar'),
       h('p', { class: 'muted' }, `${visible.length} ${visible.length === 1 ? 'event' : 'events'} in view, ${must.length} must-attend.`),
       next ? h('button', { type: 'button', class: 'next-up', onclick: () => ctx.openEvent(next.e.id) },
         h('span', { class: 'next-up-label' }, 'Next must-attend'),
         h('span', {}, `${next.e.name}, ${next.d === 0 ? 'starts today' : `in ${next.d} ${next.d === 1 ? 'day' : 'days'}`}`)) : null,
-    );
+    ].filter(Boolean));
   }
 
   function renderRank(visible) {
@@ -99,7 +106,7 @@ export function mount(root, ctx) {
 
   function refresh() {
     const [a, b] = windowBounds();
-    const visible = dateWindow(events, a, b);
+    const visible = filterEvents(dateWindow(events, a, b), { sector });
     map?.setWindow(new Set(visible.map((e) => e.id)));
     renderSummary(visible);
     renderRank(visible);
@@ -123,9 +130,17 @@ export function mount(root, ctx) {
     card.style.top = `${Math.max(72, Math.min(at.y - 24, stage.clientHeight - card.offsetHeight - 90))}px`;
   }
 
+  function fillSectorOptions() {
+    const list = ctx.sectors.list();
+    const options = [['all', 'All sectors'], ...list.map((s) => [s.id, s.name]), ['none', 'No sector']];
+    if (!options.some(([value]) => value === sector)) sector = 'all';
+    sectorSelect.replaceChildren(...options.map(([value, text]) => h('option', { value, selected: value === sector }, text)));
+    sectorSelect.hidden = !list.length;
+  }
+
   async function load() {
     message.hidden = true;
-    const [result, icp] = await Promise.all([ctx.api.get('/api/radar'), ctx.api.get('/api/icp')]);
+    const [result, icp] = await Promise.all([ctx.api.get('/api/radar'), ctx.api.get('/api/icp'), ctx.sectors.load()]);
     if (disposed) return;
     if (!result.ok) {
       if (result.status === 401) return;
@@ -134,9 +149,10 @@ export function mount(root, ctx) {
       return;
     }
     events = result.data;
+    fillSectorOptions();
     if (!events.length) {
       message.hidden = false;
-      message.replaceChildren(emptyState({ art: 'no-events', title: 'No events yet', text: 'Import the case-study Sheet to fill the radar. DEPLOY.md lists the steps.' }));
+      message.replaceChildren(firstRunCard(ctx, { onLoaded: load }));
       return;
     }
     months = monthsSpan(events);

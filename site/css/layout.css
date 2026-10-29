@@ -93,6 +93,8 @@ a { color: inherit; }
 .signin-card .mark { color: var(--text); }
 .signin-button { min-height: 44px; }
 .signin-error { color: var(--danger); max-width: 40ch; }
+/* A workspace waiting for approval is news, not a failure. */
+.signin-error.is-notice { color: var(--sage); }
 
 @media (max-width: 640px) {
   :root { --rail: 0px; }

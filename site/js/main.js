@@ -7,6 +7,7 @@ import { mountDrawer } from './drawer.js';
 import { prefersReducedMotion } from './motion.js';
 import { createPrefs } from './prefs.js';
 import { createRouter } from './router.js';
+import { createSectors } from './sectors.js';
 
 const ROUTES = {
   radar: () => import('./views/radar.js'),
@@ -15,6 +16,7 @@ const ROUTES = {
   icp: () => import('./views/icp.js'),
   graph: () => import('./views/graph.js'),
   feed: () => import('./views/feed.js'),
+  workspaces: () => import('./views/workspaces.js'),
 };
 
 const NAV = [
@@ -25,6 +27,9 @@ const NAV = [
   { name: 'graph', label: 'Graph', icon: '<circle cx="6" cy="7" r="2"/><circle cx="18" cy="6" r="2"/><circle cx="13" cy="17" r="2.4"/><path d="M7.7 8l4 7.2M16.4 7.4l-2.6 7.8M8 7h8"/>' },
   { name: 'feed', label: 'Feed', icon: '<path d="M5 6h14M5 11h14M5 16h8"/><circle cx="18" cy="17" r="1.6"/>' },
 ];
+
+// Only the operator gets this item; the Worker refuses the screen's data to anyone else.
+const OPERATOR_NAV = { name: 'workspaces', label: 'Workspaces', icon: '<path d="M4 20V9l8-4 8 4v11"/><path d="M9 20v-5h6v5"/>' };
 
 const $ = (id) => document.getElementById(id);
 const svg = (paths) => `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths}</svg>`;
@@ -49,7 +54,7 @@ function applyTheme(theme) {
 const session = createSession();
 const api = createApi(config, { getToken: session.getToken });
 const prefs = createPrefs(api);
-const ctx = { api, config, session, prefs, openEvent: () => {}, prefersReducedMotion };
+const ctx = { api, config, session, prefs, sectors: createSectors(api), openEvent: () => {}, prefersReducedMotion };
 ctx.openEvent = mountDrawer(ctx).open;
 const ask = mountAsk(ctx);
 addEventListener('keydown', (ev) => {
@@ -60,15 +65,21 @@ addEventListener('keydown', (ev) => {
 });
 
 function renderRail() {
+  const nav = session.isOperator() ? [...NAV, OPERATOR_NAV] : NAV;
+  const workspace = session.getWorkspace();
+  const signOutLabel = workspace ? `Sign out of ${workspace.name}` : 'Sign out';
   $('rail').innerHTML = `
     <a class="rail-mark" href="#/radar" aria-label="Krillium home"></a>
-    <ul class="rail-list">${NAV.map((n) => `<li><a class="rail-link" data-route="${n.name}" href="#/${n.name}" aria-label="${n.label}" title="${n.label}">${svg(n.icon)}<span class="rail-label">${n.label}</span>${n.name === 'find' ? '<span class="rail-badge" id="inbox-badge" hidden></span>' : ''}</a></li>`).join('')}</ul>
+    <ul class="rail-list">${nav.map((n) => `<li><a class="rail-link" data-route="${n.name}" href="#/${n.name}" aria-label="${n.label}" title="${n.label}">${svg(n.icon)}<span class="rail-label">${n.label}</span>${n.name === 'find' ? '<span class="rail-badge" id="inbox-badge" hidden></span>' : ''}</a></li>`).join('')}</ul>
     <div class="rail-foot">
       <button class="rail-link" id="ask-open" type="button" aria-label="Ask the radar" title="Ask (Cmd or Ctrl K)">${svg('<circle cx="11" cy="11" r="6.5"/><path d="M16 16l4 4"/>')}</button>
       <button class="rail-link" id="theme-toggle" type="button" aria-label="Switch light and dark theme" title="Theme">${svg('<path d="M20 14.5A8 8 0 019.5 4 8 8 0 1020 14.5z"/>')}</button>
       <button class="rail-link" id="sign-out" type="button" aria-label="Sign out" title="Sign out">${svg('<path d="M9 5H6a1 1 0 00-1 1v12a1 1 0 001 1h3M14 8l4 4-4 4M18 12H9"/>')}</button>
     </div>`;
   $('rail').querySelector('.rail-mark').append(markElement({ size: 30 }));
+  // The workspace name is someone's Google display name, so it goes in through attributes, never into the HTML above.
+  $('sign-out').setAttribute('aria-label', signOutLabel);
+  $('sign-out').title = signOutLabel;
   $('ask-open').addEventListener('click', () => ask.open());
   $('theme-toggle').addEventListener('click', () => {
     const next = document.documentElement.dataset.theme === 'light' ? 'dark' : 'light';
@@ -115,6 +126,7 @@ function showSignIn(message) {
   if (message !== undefined) {
     error.hidden = !message;
     error.textContent = message;
+    error.classList.remove('is-notice');
   }
   if (buttonMounted) return;
   buttonMounted = true;
@@ -123,8 +135,11 @@ function showSignIn(message) {
     api,
     onSignedIn(data) {
       session.set(data);
+      // The rail depends on who signed in (the operator gets Workspaces), so draw it again now that it is known.
+      renderRail();
       overlay.hidden = true;
       error.hidden = true;
+      error.classList.remove('is-notice');
       // Load the saved preferences, then re-render the current screen so it starts with them.
       prefs.load().then(() => {
         if (prefs.get('theme')) applyTheme(prefs.get('theme'));
@@ -132,10 +147,17 @@ function showSignIn(message) {
         refreshInbox();
       });
     },
+    // A workspace waiting for approval is not an error: say so calmly and keep the Google button so they can check again.
+    onPending(text) {
+      error.hidden = false;
+      error.textContent = text;
+      error.classList.add('is-notice');
+    },
     onError(text) {
       buttonMounted = false;
       error.hidden = false;
       error.textContent = text;
+      error.classList.remove('is-notice');
     },
   });
 }

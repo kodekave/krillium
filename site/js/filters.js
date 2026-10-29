@@ -13,6 +13,10 @@ export function filterEvents(events, f = {}) {
     if (f.minScore !== undefined && f.minScore !== '' && !(e.priority >= Number(f.minScore))) return false;
     if (f.status && f.status !== 'all' && e.status !== f.status) return false;
     if (f.region && f.region !== 'all' && regionOf(e.lon) !== f.region) return false;
+    if (f.sector && f.sector !== 'all') {
+      const mine = e.sectors ?? [];
+      if (f.sector === 'none' ? mine.length > 0 : !mine.includes(f.sector)) return false;
+    }
     if ((f.from || f.to) && e.startDate) {
       const end = e.endDate ?? e.startDate;
       if (f.to && e.startDate > f.to) return false;

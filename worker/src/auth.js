@@ -117,15 +117,31 @@ const unauthorised = () =>
     headers: { 'content-type': 'application/json', 'cache-control': 'no-store' },
   });
 
+// The signed-in person, their workspace and whether that workspace may be used. The workspace id used everywhere
+// else comes from here, never from the request.
 export async function requireUser(request, env) {
   const header = request.headers.get('authorization') ?? '';
   const match = /^Bearer (.+)$/.exec(header);
   const session = match ? await verifySession(match[1], env.SESSION_SECRET) : null;
   if (!session) throw unauthorised();
-  // Sessions are stateless, so the allow-list is checked on every request: removing someone takes effect at once.
-  const row = await env.DB.prepare('SELECT name, role, active FROM users WHERE lower(email) = lower(?)')
+  // Sessions are stateless, so the allow-list and the workspace's status are checked on every request: removing
+  // someone, or suspending their workspace, takes effect at once. A workspace that is not active answers 401 like
+  // any ended session; signing in again then shows the precise reason.
+  const row = await env.DB.prepare(
+    `SELECT u.name, u.role, u.active, u.operator, u.workspace_id, w.name AS workspace_name, w.status, w.shared_keys
+     FROM users u LEFT JOIN workspaces w ON w.id = u.workspace_id
+     WHERE lower(u.email) = lower(?)`,
+  )
     .bind(session.email)
     .first();
-  if (!row || !row.active) throw unauthorised();
-  return { email: session.email, name: row.name ?? session.name, role: row.role };
+  if (!row || !row.active || !row.workspace_id || row.status !== 'active') throw unauthorised();
+  return {
+    email: session.email,
+    name: row.name ?? session.name,
+    role: row.role,
+    operator: Boolean(row.operator),
+    workspaceId: row.workspace_id,
+    workspaceName: row.workspace_name,
+    sharedKeys: Boolean(row.shared_keys),
+  };
 }

@@ -1,4 +1,5 @@
 // Session storage and Google sign-in. The token lives in memory and sessionStorage only.
+import { signInOutcome } from './workspace-state.js';
 
 const KEY = 'gtm-radar.session';
 
@@ -12,6 +13,10 @@ export function createSession(storage = globalThis.sessionStorage) {
   return {
     getToken: () => current?.token ?? null,
     getUser: () => current?.user ?? null,
+    // The sign-in answer carries the workspace and whether this person is the operator. The Worker decides both on every
+    // request; these only decide what the page shows.
+    getWorkspace: () => current?.workspace ?? null,
+    isOperator: () => Boolean(current?.operator),
     set(session) {
       current = session;
       try {
@@ -52,7 +57,7 @@ function loadGoogleScript() {
   return googleScript;
 }
 
-export async function mountGoogleButton(container, { config, api, onSignedIn, onError }) {
+export async function mountGoogleButton(container, { config, api, onSignedIn, onPending, onError }) {
   if (!config.googleClientId) {
     onError('Google sign-in is not set up yet. Add the Google client ID to site/config.js.');
     return;
@@ -67,10 +72,11 @@ export async function mountGoogleButton(container, { config, api, onSignedIn, on
     client_id: config.googleClientId,
     callback: async ({ credential }) => {
       const result = await api.post('/auth/google', { idToken: credential });
-      if (result.ok) onSignedIn(result.data);
-      else if (result.status === 403) onError('This Google account is not on the team list. Ask an admin to add it.');
-      else if (result.stale) onError('Cannot reach the radar service. Check your connection and try again.');
-      else onError('Sign-in could not be verified. Try again.');
+      const outcome = signInOutcome(result);
+      // A 202 is "ok" to the api layer but is not a session: only a signed-in answer starts one.
+      if (outcome.kind === 'signed-in') onSignedIn(result.data);
+      else if (outcome.kind === 'pending' && onPending) onPending(outcome.message);
+      else onError(outcome.message);
     },
   });
   globalThis.google.accounts.id.renderButton(container, { theme: 'outline', size: 'large', shape: 'pill', text: 'signin_with' });

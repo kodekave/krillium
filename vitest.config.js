@@ -10,7 +10,7 @@ export default defineConfig(async () => {
           test: {
             name: 'shared',
             environment: 'node',
-            include: ['tests/shared/**/*.test.js', 'tests/site/**/*.test.js'],
+            include: ['tests/shared/**/*.test.js', 'tests/site/**/*.test.js', 'tests/migration/**/*.test.js'],
           },
         },
         {

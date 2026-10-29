@@ -47,3 +47,23 @@ describe('filterEvents', () => {
     expect(ids(filterEvents(events, { region: 'americas', minScore: 50 }))).toEqual(['c']);
   });
 });
+
+describe('filterEvents by sector', () => {
+  const tagged = [{ id: 'a', sectors: ['pharma'] }, { id: 'b', sectors: ['pharma', 'banking'] }, { id: 'c', sectors: [] }, { id: 'd' }];
+  const idsOf = (list) => list.map((e) => e.id);
+
+  it('keeps the events in the chosen sector', () => {
+    expect(idsOf(filterEvents(tagged, { sector: 'pharma' }))).toEqual(['a', 'b']);
+    expect(idsOf(filterEvents(tagged, { sector: 'banking' }))).toEqual(['b']);
+    expect(idsOf(filterEvents(tagged, { sector: 'retired' }))).toEqual([]);
+  });
+
+  it('shows everything for all sectors or none chosen', () => {
+    expect(idsOf(filterEvents(tagged, { sector: 'all' }))).toEqual(['a', 'b', 'c', 'd']);
+    expect(idsOf(filterEvents(tagged, {}))).toEqual(['a', 'b', 'c', 'd']);
+  });
+
+  it('can show the events that have no sector', () => {
+    expect(idsOf(filterEvents(tagged, { sector: 'none' }))).toEqual(['c', 'd']);
+  });
+});

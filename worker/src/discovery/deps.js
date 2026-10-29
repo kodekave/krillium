@@ -4,17 +4,20 @@ import { createConfsFeed } from './adapters/confs.js';
 import { createExaSearch } from './adapters/exa.js';
 import { createAnthropicModel } from './model.js';
 
-export function defaultDeps(env) {
+// Exa finds the pages and, by default, reads them too, so its key is the only one discovery needs. With an Anthropic key
+// as well, Claude reads the pages instead and Exa is not asked for (or charged for) summaries. Claude cannot search, so
+// an Anthropic key alone does not switch the feature on.
+// The Worker's own keys are the operator's, so they serve only a workspace the operator has switched `sharedKeys` on for;
+// any other workspace has no search or model reader. The Confs.tech feed needs no key and is always available.
+export function defaultDeps(env, { sharedKeys = false } = {}) {
+  const shared = sharedKeys === true;
   return {
-    pages: env.EXA_API_KEY ? createExaSearch(env) : null,
+    pages: shared && env.EXA_API_KEY ? createExaSearch(env, (...args) => fetch(...args), { summaries: !env.ANTHROPIC_API_KEY }) : null,
     feeds: createConfsFeed(),
-    model: env.ANTHROPIC_API_KEY ? createAnthropicModel(env) : null,
+    model: shared && env.ANTHROPIC_API_KEY ? createAnthropicModel(env) : null,
   };
 }
 
 export function missingSecrets(deps) {
-  const missing = [];
-  if (!deps.pages) missing.push('EXA_API_KEY');
-  if (!deps.model) missing.push('ANTHROPIC_API_KEY');
-  return missing;
+  return deps.pages ? [] : ['EXA_API_KEY'];
 }

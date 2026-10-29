@@ -20,8 +20,8 @@ const candidate = (id) => env.DB.prepare('SELECT * FROM candidates WHERE id = ?'
 
 // Saves one group and re-evaluates it, as a run does.
 async function see(g) {
-  const { candidateId } = await saveGroup(env.DB, g, NOW);
-  return { candidateId, ...(await reevaluate(env.DB, candidateId, NOW)) };
+  const { candidateId } = await saveGroup(env.DB, 1, g, NOW);
+  return { candidateId, ...(await reevaluate(env.DB, 1, candidateId, NOW)) };
 }
 
 const threeSites = () => group(
@@ -62,9 +62,9 @@ describe('auto-add', () => {
   });
 
   it('promotion is atomic: when the batch fails no event, source or change exists', async () => {
-    const { candidateId } = await saveGroup(env.DB, threeSites(), NOW);
+    const { candidateId } = await saveGroup(env.DB, 1, threeSites(), NOW);
     const failing = { prepare: (sql) => env.DB.prepare(sql), batch: async () => { throw new Error('boom'); } };
-    await expect(reevaluate(failing, candidateId, NOW)).rejects.toThrow('boom');
+    await expect(reevaluate(failing, 1, candidateId, NOW)).rejects.toThrow('boom');
     expect(await count('events')).toBe(0);
     expect(await count('event_sources')).toBe(0);
     expect(await count('changes')).toBe(0);
@@ -72,10 +72,46 @@ describe('auto-add', () => {
   });
 });
 
+describe('sectors', () => {
+  const sectorsOf = async (table, where, ...values) => JSON.parse((await env.DB.prepare(`SELECT sectors FROM ${table} WHERE ${where}`).bind(...values).first()).sectors);
+
+  it('a candidate keeps the sectors its sources were found for, and later sources add to them', async () => {
+    const first = await saveGroup(env.DB, 1, group(obs({ sectors: ['pharma'] })), NOW);
+    expect(await sectorsOf('candidates', 'id = ?', first.candidateId)).toEqual(['pharma']);
+    const second = await saveGroup(env.DB, 1, group(obs({ sourceDomain: 'luminik.io', url: 'https://luminik.io/x', sectors: ['banking'] })), NOW);
+    expect(second.candidateId).toBe(first.candidateId);
+    expect(await sectorsOf('candidates', 'id = ?', first.candidateId)).toEqual(['banking', 'pharma']);
+  });
+
+  it('an event added from three sites carries the sectors they were found for', async () => {
+    const result = await see(group(
+      obs({ sectors: ['pharma'] }),
+      obs({ sourceDomain: 'luminik.io', url: 'https://luminik.io/x', sectors: ['pharma', 'procurement'] }),
+      obs({ sourceDomain: '10times.com', url: 'https://10times.com/x' }),
+    ));
+    expect(result.status).toBe('auto_added');
+    expect(await sectorsOf('events', 'id = ?', result.eventId)).toEqual(['pharma', 'procurement']);
+  });
+
+  it('an event approved from the inbox carries them too, and the inbox lists them', async () => {
+    const { candidateId } = await saveGroup(env.DB, 1, group(obs({ sectors: ['banking'] })), NOW);
+    expect((await listInbox(env.DB, 1, NOW))[0].sectors).toEqual(['banking']);
+    const { eventId } = await approveCandidate(env.DB, 1, candidateId, USER, NOW);
+    expect(await sectorsOf('events', 'id = ?', eventId)).toEqual(['banking']);
+  });
+
+  it('an event found without any sector is saved with none', async () => {
+    const { candidateId } = await saveGroup(env.DB, 1, group(obs()), NOW);
+    expect((await listInbox(env.DB, 1, NOW))[0].sectors).toEqual([]);
+    const { eventId } = await approveCandidate(env.DB, 1, candidateId, USER, NOW);
+    expect(await sectorsOf('events', 'id = ?', eventId)).toEqual([]);
+  });
+});
+
 describe('approve and reject', () => {
   it('approve creates the event with suggested scores, event_sources and a new_event change', async () => {
-    const { candidateId } = await saveGroup(env.DB, group(obs()), NOW);
-    const { eventId } = await approveCandidate(env.DB, candidateId, USER, NOW);
+    const { candidateId } = await saveGroup(env.DB, 1, group(obs()), NOW);
+    const { eventId } = await approveCandidate(env.DB, 1, candidateId, USER, NOW);
     expect(eventId).toBe('ssow-orlando-2027-03');
     const event = await env.DB.prepare('SELECT * FROM events WHERE id = ?').bind(eventId).first();
     expect(event).toMatchObject({
@@ -92,19 +128,19 @@ describe('approve and reject', () => {
   it('a second event with the same name and month gets a numeric suffix', async () => {
     const berlin = obs({ name: 'Procurement Summit', city: 'Berlin', country: 'DE' });
     const orlando = obs({ name: 'Procurement Summit', city: 'Orlando', country: 'US', sourceDomain: 'a.com', url: 'https://a.com/x' });
-    const a = await saveGroup(env.DB, group(berlin), NOW);
-    const b = await saveGroup(env.DB, group(orlando), NOW);
+    const a = await saveGroup(env.DB, 1, group(berlin), NOW);
+    const b = await saveGroup(env.DB, 1, group(orlando), NOW);
     expect(b.candidateId).not.toBe(a.candidateId);
-    const first = await approveCandidate(env.DB, a.candidateId, USER, NOW);
-    const second = await approveCandidate(env.DB, b.candidateId, USER, NOW);
+    const first = await approveCandidate(env.DB, 1, a.candidateId, USER, NOW);
+    const second = await approveCandidate(env.DB, 1, b.candidateId, USER, NOW);
     expect([first.eventId, second.eventId]).toEqual(['procurement-summit-2027-03', 'procurement-summit-2027-03-2']);
   });
 
   it('reject records a rejection that cluster() later filters', async () => {
-    const { candidateId } = await saveGroup(env.DB, group(obs()), NOW);
-    await rejectCandidate(env.DB, candidateId, USER, NOW);
+    const { candidateId } = await saveGroup(env.DB, 1, group(obs()), NOW);
+    await rejectCandidate(env.DB, 1, candidateId, USER, NOW);
     expect((await candidate(candidateId)).status).toBe('rejected');
-    const { existing, rejected } = await loadContext(env.DB);
+    const { existing, rejected } = await loadContext(env.DB, 1);
     expect(rejected.has(rejectionKey('SSOW Orlando', '2027-03-08'))).toBe(true);
     const result = cluster([obs({ sourceDomain: 'x.com' })], { existing, rejected, now: NOW });
     expect(result.groups).toEqual([]);
@@ -112,24 +148,24 @@ describe('approve and reject', () => {
   });
 
   it('saveGroup never moves an approved or rejected candidate back to the inbox', async () => {
-    const approved = await saveGroup(env.DB, group(obs()), NOW);
-    await approveCandidate(env.DB, approved.candidateId, USER, NOW);
-    expect((await saveGroup(env.DB, group(obs({ sourceDomain: 'b.com', url: 'https://b.com/x' })), NOW)).status).toBe('approved');
+    const approved = await saveGroup(env.DB, 1, group(obs()), NOW);
+    await approveCandidate(env.DB, 1, approved.candidateId, USER, NOW);
+    expect((await saveGroup(env.DB, 1, group(obs({ sourceDomain: 'b.com', url: 'https://b.com/x' })), NOW)).status).toBe('approved');
     expect((await candidate(approved.candidateId)).status).toBe('approved');
 
-    const rejected = await saveGroup(env.DB, group(obs({ name: 'BME Symposium', city: 'Berlin', country: 'DE' })), NOW);
-    await rejectCandidate(env.DB, rejected.candidateId, USER, NOW);
-    expect((await saveGroup(env.DB, group(obs({ name: 'BME Symposium', city: 'Berlin', country: 'DE', sourceDomain: 'c.com', url: 'https://c.com/x' })), NOW)).status).toBe('rejected');
+    const rejected = await saveGroup(env.DB, 1, group(obs({ name: 'BME Symposium', city: 'Berlin', country: 'DE' })), NOW);
+    await rejectCandidate(env.DB, 1, rejected.candidateId, USER, NOW);
+    expect((await saveGroup(env.DB, 1, group(obs({ name: 'BME Symposium', city: 'Berlin', country: 'DE', sourceDomain: 'c.com', url: 'https://c.com/x' })), NOW)).status).toBe('rejected');
     expect((await candidate(rejected.candidateId)).status).toBe('rejected');
   });
 
   it('approve and reject refuse unknown or already-handled candidates', async () => {
-    await expect(approveCandidate(env.DB, 999, USER, NOW)).rejects.toMatchObject({ status: 404 });
-    await expect(rejectCandidate(env.DB, 999, USER, NOW)).rejects.toMatchObject({ status: 404 });
-    const { candidateId } = await saveGroup(env.DB, group(obs()), NOW);
-    await approveCandidate(env.DB, candidateId, USER, NOW);
-    await expect(approveCandidate(env.DB, candidateId, USER, NOW)).rejects.toMatchObject({ status: 409 });
-    await expect(rejectCandidate(env.DB, candidateId, USER, NOW)).rejects.toMatchObject({ status: 409 });
+    await expect(approveCandidate(env.DB, 1, 999, USER, NOW)).rejects.toMatchObject({ status: 404 });
+    await expect(rejectCandidate(env.DB, 1, 999, USER, NOW)).rejects.toMatchObject({ status: 404 });
+    const { candidateId } = await saveGroup(env.DB, 1, group(obs()), NOW);
+    await approveCandidate(env.DB, 1, candidateId, USER, NOW);
+    await expect(approveCandidate(env.DB, 1, candidateId, USER, NOW)).rejects.toMatchObject({ status: 409 });
+    await expect(rejectCandidate(env.DB, 1, candidateId, USER, NOW)).rejects.toMatchObject({ status: 409 });
   });
 });
 
@@ -141,7 +177,7 @@ describe('undo', () => {
 
   it('removes the event, its sources and changes, records a rejection and leaves a removed audit change', async () => {
     const eventId = await autoAdded();
-    await undoAutoAdd(env.DB, eventId, USER, NOW);
+    await undoAutoAdd(env.DB, 1, eventId, USER, NOW);
     expect(await count('events')).toBe(0);
     expect(await count('event_sources')).toBe(0);
     expect(await count('changes', `event_id = '${eventId}'`)).toBe(0);
@@ -154,23 +190,23 @@ describe('undo', () => {
 
   it('returns 409 when a decision exists', async () => {
     const eventId = await autoAdded();
-    await env.DB.prepare("INSERT INTO decisions (event_id, user, choice) VALUES (?, ?, 'watch')").bind(eventId, 'other@example.test').run();
-    await expect(undoAutoAdd(env.DB, eventId, USER, NOW)).rejects.toMatchObject({ status: 409 });
+    await env.DB.prepare("INSERT INTO decisions (workspace_id, event_id, user, choice) VALUES (1, ?, ?, 'watch')").bind(eventId, 'other@example.test').run();
+    await expect(undoAutoAdd(env.DB, 1, eventId, USER, NOW)).rejects.toMatchObject({ status: 409 });
     expect(await count('events')).toBe(1);
   });
 
   it('returns 409 when people are attached', async () => {
     const eventId = await autoAdded();
     await attend(eventId, await addPerson());
-    await expect(undoAutoAdd(env.DB, eventId, USER, NOW)).rejects.toMatchObject({ status: 409 });
+    await expect(undoAutoAdd(env.DB, 1, eventId, USER, NOW)).rejects.toMatchObject({ status: 409 });
     expect(await count('events')).toBe(1);
   });
 
   it('returns 409 for an event that was not auto-added and 404 for an unknown one', async () => {
     const imported = await addEvent();
-    await expect(undoAutoAdd(env.DB, imported.id, USER, NOW)).rejects.toBeInstanceOf(DiscoveryError);
-    await expect(undoAutoAdd(env.DB, imported.id, USER, NOW)).rejects.toMatchObject({ status: 409 });
-    await expect(undoAutoAdd(env.DB, 'nope', USER, NOW)).rejects.toMatchObject({ status: 404 });
+    await expect(undoAutoAdd(env.DB, 1, imported.id, USER, NOW)).rejects.toBeInstanceOf(DiscoveryError);
+    await expect(undoAutoAdd(env.DB, 1, imported.id, USER, NOW)).rejects.toMatchObject({ status: 409 });
+    await expect(undoAutoAdd(env.DB, 1, 'nope', USER, NOW)).rejects.toMatchObject({ status: 404 });
     expect(await count('events')).toBe(1);
   });
 });
@@ -180,8 +216,8 @@ describe('tracked events and the inbox', () => {
     const event = await addEvent({ id: 'ssow-orl', name: 'SSOW Orlando', city: 'Orlando', country: 'US', start_date: '2027-03-08' });
     const changesBefore = await count('changes');
     const seen = [obs(), obs({ sourceDomain: 'luminik.io', url: 'https://luminik.io/x' })];
-    await addSourcesToEvent(env.DB, event.id, seen, NOW);
-    await addSourcesToEvent(env.DB, event.id, seen, NOW);
+    await addSourcesToEvent(env.DB, 1, event.id, seen, NOW);
+    await addSourcesToEvent(env.DB, 1, event.id, seen, NOW);
     expect(await count('event_sources', `event_id = '${event.id}'`)).toBe(2);
     expect(await count('events')).toBe(1);
     expect(await count('changes')).toBe(changesBefore);
@@ -189,16 +225,16 @@ describe('tracked events and the inbox', () => {
 
   it('loadContext returns existing events and rejected keys', async () => {
     await addEvent({ id: 'e1', name: 'Event One', city: 'Berlin', country: 'DE', start_date: '2027-03-08' });
-    const { existing, rejected } = await loadContext(env.DB);
+    const { existing, rejected } = await loadContext(env.DB, 1);
     expect(existing).toEqual([{ id: 'e1', name: 'Event One', startDate: '2027-03-08', city: 'Berlin', country: 'DE' }]);
     expect(rejected.size).toBe(0);
   });
 
   it('listInbox returns inbox candidates with sources, reason and suggested score', async () => {
-    const a = await saveGroup(env.DB, group(obs(), obs({ sourceDomain: 'luminik.io', url: 'https://luminik.io/x' })), NOW);
-    const b = await saveGroup(env.DB, group(obs({ name: 'BME Symposium', city: 'Berlin', country: 'DE', startDate: '2026-11-18' })), NOW);
-    await approveCandidate(env.DB, b.candidateId, USER, NOW);
-    const items = await listInbox(env.DB, NOW);
+    const a = await saveGroup(env.DB, 1, group(obs(), obs({ sourceDomain: 'luminik.io', url: 'https://luminik.io/x' })), NOW);
+    const b = await saveGroup(env.DB, 1, group(obs({ name: 'BME Symposium', city: 'Berlin', country: 'DE', startDate: '2026-11-18' })), NOW);
+    await approveCandidate(env.DB, 1, b.candidateId, USER, NOW);
+    const items = await listInbox(env.DB, 1, NOW);
     expect(items).toHaveLength(1);
     expect(items[0]).toMatchObject({ id: a.candidateId, name: 'SSOW Orlando', startDate: '2027-03-08', city: 'Orlando', country: 'US', reason: '2 of 3 sites', conflict: null });
     expect(items[0].sources.map((s) => s.domain).sort()).toEqual(['luminik.io', 'ssonetwork.com']);
@@ -209,16 +245,16 @@ describe('tracked events and the inbox', () => {
 
 describe('two people acting at once', () => {
   it('two approvals at once create one event and one clear refusal', async () => {
-    const { candidateId } = await saveGroup(env.DB, group(obs()), NOW);
-    const results = await Promise.allSettled([approveCandidate(env.DB, candidateId, USER, NOW), approveCandidate(env.DB, candidateId, 'other@example.test', NOW)]);
+    const { candidateId } = await saveGroup(env.DB, 1, group(obs()), NOW);
+    const results = await Promise.allSettled([approveCandidate(env.DB, 1, candidateId, USER, NOW), approveCandidate(env.DB, 1, candidateId, 'other@example.test', NOW)]);
     expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
     expect(results.find((r) => r.status === 'rejected').reason).toMatchObject({ status: 409 });
     expect(await count('events')).toBe(1);
   });
 
   it('a rejection racing an auto-add leaves one consistent outcome', async () => {
-    const { candidateId } = await saveGroup(env.DB, threeSites(), NOW);
-    const results = await Promise.allSettled([reevaluate(env.DB, candidateId, NOW), rejectCandidate(env.DB, candidateId, USER, NOW)]);
+    const { candidateId } = await saveGroup(env.DB, 1, threeSites(), NOW);
+    const results = await Promise.allSettled([reevaluate(env.DB, 1, candidateId, NOW), rejectCandidate(env.DB, 1, candidateId, USER, NOW)]);
     const row = await candidate(candidateId);
     if (row.status === 'rejected') {
       expect(await count('events')).toBe(0);
@@ -231,24 +267,24 @@ describe('two people acting at once', () => {
   });
 
   it('a candidate someone else already claimed is refused, not handled twice', async () => {
-    const { candidateId } = await saveGroup(env.DB, group(obs()), NOW);
+    const { candidateId } = await saveGroup(env.DB, 1, group(obs()), NOW);
     await env.DB.prepare("UPDATE candidates SET status = 'promoting' WHERE id = ?").bind(candidateId).run();
-    await expect(approveCandidate(env.DB, candidateId, USER, NOW)).rejects.toMatchObject({ status: 409 });
-    await expect(rejectCandidate(env.DB, candidateId, USER, NOW)).rejects.toMatchObject({ status: 409 });
+    await expect(approveCandidate(env.DB, 1, candidateId, USER, NOW)).rejects.toMatchObject({ status: 409 });
+    await expect(rejectCandidate(env.DB, 1, candidateId, USER, NOW)).rejects.toMatchObject({ status: 409 });
     expect(await count('events')).toBe(0);
   });
 
   it('a failed promotion gives the candidate back so it can be approved again', async () => {
-    const { candidateId } = await saveGroup(env.DB, group(obs()), NOW);
+    const { candidateId } = await saveGroup(env.DB, 1, group(obs()), NOW);
     const failing = { prepare: (sql) => env.DB.prepare(sql), batch: async () => { throw new Error('boom'); } };
-    await expect(approveCandidate(failing, candidateId, USER, NOW)).rejects.toThrow('boom');
+    await expect(approveCandidate(failing, 1, candidateId, USER, NOW)).rejects.toThrow('boom');
     expect((await candidate(candidateId)).status).toBe('inbox');
-    expect((await approveCandidate(env.DB, candidateId, USER, NOW)).eventId).toBe('ssow-orlando-2027-03');
+    expect((await approveCandidate(env.DB, 1, candidateId, USER, NOW)).eventId).toBe('ssow-orlando-2027-03');
   });
 
   it('two writers saving the same new event end up with one candidate and one source', async () => {
     const g = group(obs());
-    const [a, b] = await Promise.all([saveGroup(env.DB, g, NOW), saveGroup(env.DB, g, NOW)]);
+    const [a, b] = await Promise.all([saveGroup(env.DB, 1, g, NOW), saveGroup(env.DB, 1, g, NOW)]);
     expect(a.candidateId).toBe(b.candidateId);
     expect(await count('candidates')).toBe(1);
     expect(await count('candidate_sources')).toBe(1);
@@ -261,7 +297,7 @@ describe('processGroups', () => {
   it('saves every group and reports each outcome', async () => {
     const inbox = group(other('Alpha Procurement Forum'));
     const sure = group(...['a.com', 'b.com', 'c.com'].map((d) => other('Bravo Procurement Forum', d)));
-    const out = await processGroups(env.DB, [inbox, sure], NOW);
+    const out = await processGroups(env.DB, 1, [inbox, sure], NOW);
     expect(out.map((r) => r.status)).toEqual(['inbox', 'auto_added']);
     expect(out[0].reason).toBe('1 of 3 sites');
     expect(out[1].eventId).toBe('bravo-procurement-forum-2027-03');
@@ -270,25 +306,25 @@ describe('processGroups', () => {
   });
 
   it('adds new evidence to a candidate found earlier and auto-adds on the third site', async () => {
-    const first = await processGroups(env.DB, [group(other('Alpha Procurement Forum', 'a.com'))], NOW);
-    await processGroups(env.DB, [group(other('Alpha Procurement Forum 2027', 'b.com'))], NOW);
-    const third = await processGroups(env.DB, [group(other('Alpha Procurement Forum', 'c.com'))], NOW);
+    const first = await processGroups(env.DB, 1, [group(other('Alpha Procurement Forum', 'a.com'))], NOW);
+    await processGroups(env.DB, 1, [group(other('Alpha Procurement Forum 2027', 'b.com'))], NOW);
+    const third = await processGroups(env.DB, 1, [group(other('Alpha Procurement Forum', 'c.com'))], NOW);
     expect(third[0]).toMatchObject({ status: 'auto_added', candidateId: first[0].candidateId });
     expect(third[0].group.domains).toHaveLength(3);
     expect(await count('candidates')).toBe(1);
   });
 
   it('reports an already handled candidate without reopening it', async () => {
-    const [{ candidateId }] = await processGroups(env.DB, [group(other('Alpha Procurement Forum'))], NOW);
-    await approveCandidate(env.DB, candidateId, USER, NOW);
-    const again = await processGroups(env.DB, [group(other('Alpha Procurement Forum', 'z.com'))], NOW);
+    const [{ candidateId }] = await processGroups(env.DB, 1, [group(other('Alpha Procurement Forum'))], NOW);
+    await approveCandidate(env.DB, 1, candidateId, USER, NOW);
+    const again = await processGroups(env.DB, 1, [group(other('Alpha Procurement Forum', 'z.com'))], NOW);
     expect(again[0]).toMatchObject({ status: 'approved', candidateId });
     expect((await candidate(candidateId)).status).toBe('approved');
   });
 
   it('two runs finding the same new event at once both succeed with one candidate', async () => {
     const g = group(other('Alpha Procurement Forum'));
-    const [a, b] = await Promise.all([processGroups(env.DB, [g], NOW), processGroups(env.DB, [g], NOW)]);
+    const [a, b] = await Promise.all([processGroups(env.DB, 1, [g], NOW), processGroups(env.DB, 1, [g], NOW)]);
     expect(a[0].candidateId).toBe(b[0].candidateId);
     expect(await count('candidates')).toBe(1);
   });

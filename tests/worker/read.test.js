@@ -49,10 +49,12 @@ describe('access control', () => {
 });
 
 describe('POST /auth/google', () => {
-  it('returns 403 for an email that is not on the allow-list', async () => {
+  // Changed by the workspaces work: a stranger no longer gets a flat 403. They get a pending workspace and wait for approval.
+  it('answers 202 pending, with no token, for an email that is not on the list yet', async () => {
     const idToken = await makeIdToken(keys, { email: 'stranger@example.test' });
     const res = await call(handler, '/auth/google', { method: 'POST', body: { idToken } });
-    expect(res.status).toBe(403);
+    expect(res.status).toBe(202);
+    expect((await res.json()).data).toEqual({ status: 'pending' });
   });
 
   it('returns 403 for an inactive user', async () => {
@@ -171,11 +173,11 @@ describe('GET /api/events/:id', () => {
 
   it('includes the signed-in user\'s latest decision and nobody else\'s', async () => {
     await addEvent({ id: 'dd' });
-    await env.DB.prepare('INSERT INTO decisions (event_id, user, choice, reason, at) VALUES (?, ?, ?, ?, ?)')
+    await env.DB.prepare('INSERT INTO decisions (workspace_id, event_id, user, choice, reason, at) VALUES (1, ?, ?, ?, ?, ?)')
       .bind('dd', 'member@example.test', 'watch', 'wait for lineup', daysAgo(3)).run();
-    await env.DB.prepare('INSERT INTO decisions (event_id, user, choice, reason, at) VALUES (?, ?, ?, ?, ?)')
+    await env.DB.prepare('INSERT INTO decisions (workspace_id, event_id, user, choice, reason, at) VALUES (1, ?, ?, ?, ?, ?)')
       .bind('dd', 'member@example.test', 'attend', 'lineup is strong', daysAgo(1)).run();
-    await env.DB.prepare('INSERT INTO decisions (event_id, user, choice, reason, at) VALUES (?, ?, ?, ?, ?)')
+    await env.DB.prepare('INSERT INTO decisions (workspace_id, event_id, user, choice, reason, at) VALUES (1, ?, ?, ?, ?, ?)')
       .bind('dd', 'other@example.test', 'skip', 'not for us', daysAgo(0)).run();
     const { data } = await (await call(handler, '/api/events/dd', { token })).json();
     expect(data.myDecision).toMatchObject({ choice: 'attend', reason: 'lineup is strong' });

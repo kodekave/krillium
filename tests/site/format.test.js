@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { formatRange, daysUntil, monthsSpan } from '../../site/js/format.js';
+import { formatRange, daysUntil, monthsSpan, timeAgo } from '../../site/js/format.js';
 
 describe('formatRange', () => {
   it('formats a range inside one month', () => {
@@ -52,5 +52,34 @@ describe('monthsSpan', () => {
   it('caps the span and returns nothing when there are no dates', () => {
     expect(monthsSpan([{ startDate: '1900-01-01', endDate: '2099-12-31' }]).length).toBeLessThanOrEqual(120);
     expect(monthsSpan([{ startDate: null, endDate: null }])).toEqual([]);
+  });
+});
+
+describe('timeAgo', () => {
+  const NOW = Date.parse('2026-10-29T12:00:00Z');
+
+  it('reads database timestamps (UTC) and ISO timestamps', () => {
+    expect(timeAgo('2026-10-29 11:55:00', NOW)).toBe('5 min ago');
+    expect(timeAgo('2026-10-29T11:55:00Z', NOW)).toBe('5 min ago');
+  });
+
+  it('says just now for the last minute, and for a clock slightly ahead', () => {
+    expect(timeAgo('2026-10-29 11:59:40', NOW)).toBe('just now');
+    expect(timeAgo('2026-10-29 12:00:30', NOW)).toBe('just now');
+  });
+
+  it('counts hours and days', () => {
+    expect(timeAgo('2026-10-29 09:00:00', NOW)).toBe('3 h ago');
+    expect(timeAgo('2026-10-28 12:00:00', NOW)).toBe('1 d ago');
+    expect(timeAgo('2026-10-20T12:00:00Z', NOW)).toBe('9 d ago');
+  });
+
+  it('gives a date once it is two weeks old or more', () => {
+    expect(timeAgo('2026-10-15 12:00:00', NOW)).toBe('15 Oct 2026');
+    expect(timeAgo('2026-09-01 08:00:00', NOW)).toBe('1 Sep 2026');
+  });
+
+  it('gives nothing for a value that is not a time', () => {
+    for (const value of ['', null, undefined, 'nonsense']) expect(timeAgo(value, NOW)).toBe('');
   });
 });

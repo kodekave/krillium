@@ -60,7 +60,7 @@ export function mountDrawer(ctx) {
     requestAnimationFrame(() => { panel.classList.add('is-open'); backdrop.classList.add('is-open'); });
     document.addEventListener('keydown', onKey);
     panel.querySelector('.drawer-close').focus();
-    const result = await ctx.api.get(`/api/events/${encodeURIComponent(id)}`);
+    const [result] = await Promise.all([ctx.api.get(`/api/events/${encodeURIComponent(id)}`), ctx.sectors.load()]);
     if (current !== id) return;
     if (!result.ok) {
       panel.replaceChildren(closeBtn(), h('h2', {}, 'These details could not load'), h('p', { class: 'muted' }, result.status === 404 ? 'This event no longer exists.' : 'Check your connection and try again.'), h('button', { type: 'button', class: 'btn btn-primary', onclick: () => open(id) }, 'Try again'));
@@ -80,6 +80,7 @@ export function mountDrawer(ctx) {
       closeBtn(),
       h('header', {}, h('span', { class: `pill pill-${e.status}` }, STATUS_LABEL[e.status]), h('h2', {}, e.name),
         h('p', { class: 'muted' }, [e.city, formatRange(e.startDate, e.endDate)].filter(Boolean).join(', ')),
+        e.sectors?.length ? h('p', { class: 'muted small' }, `Sectors: ${e.sectors.map(ctx.sectors.name).join(', ')}`) : null,
         h('p', { class: 'drawer-score' }, score, h('span', { class: 'muted' }, ` priority, event score ${e.eventScore20} of 20`))),
       h('section', {}, h('h3', {}, 'Why attend'), h('ul', { class: 'plain' }, e.reasons.map((r) => h('li', {}, r))),
         e.vendorShare !== null ? h('p', { class: 'muted small' }, `${e.vendorCount} vendors or competitors seen, ${Math.round(e.vendorShare * 100)}% of companies listed.`) : null),

@@ -3,7 +3,7 @@
 //
 // Observation: one site's statement about one event:
 // { name, organiser?, startDate, endDate?, city?, country?, online, cancelled, url, sourceDomain, adapter,
-//   title?, quotes?, topicHits }
+//   title?, quotes?, topicHits, sectors? }
 import { fold } from './clean.js';
 import { coordsForCity } from './cities.js';
 import { nameKey, nameSimilarity, registrableDomain } from './names.js';
@@ -11,6 +11,8 @@ import { nameKey, nameSimilarity, registrableDomain } from './names.js';
 export const AGGREGATOR_DOMAINS = [
   '10times.com', 'allevents.in', 'eventbrite.com', 'eventbrite.co.uk', 'luma.com', 'lu.ma', 'confs.tech',
   'conferencealerts.com', 'eventseye.com', 'tradefairdates.com', 'meetup.com',
+  // checked live on 2026-10-29: a trade-show directory, the German trade fair association's list, and two ticketing sites
+  'tsnn.com', 'auma.de', 'eventzilla.net', 'townscript.com',
 ];
 
 const DAY = 86400000;
@@ -131,6 +133,7 @@ export function buildGroup(observations) {
     country: mostCommon(observations.map((o) => o.country)),
     observations,
     domains: distinctSites(observations),
+    sectors: [...new Set(observations.flatMap((o) => o.sectors ?? []))].sort(),
     conflict: problems.length ? problems.join('; ') : null,
   };
 }

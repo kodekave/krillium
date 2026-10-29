@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { AGGREGATOR_DOMAINS } from '../../site/js/shared/discovery.js';
 import { createConfsFeed } from '../../worker/src/discovery/adapters/confs.js';
-import { createExaSearch } from '../../worker/src/discovery/adapters/exa.js';
+import { EVENT_SCHEMA, SUMMARY_QUERY, createExaSearch } from '../../worker/src/discovery/adapters/exa.js';
+import { MAX_PAGE_CHARS } from '../../worker/src/discovery/extract.js';
 import { SourceError, planSearches } from '../../worker/src/discovery/plan.js';
 import confsData from '../fixtures/discovery/confs-data.json';
 import exaResponse from '../fixtures/discovery/exa-response.json';
@@ -80,24 +81,57 @@ describe('planSearches', () => {
 describe('createExaSearch', () => {
   const respond = (status, body = exaResponse) => async () => new Response(JSON.stringify(body), { status });
 
-  it('sends the key header and maps results to pages, dropping the empty one', async () => {
+  it('sends the key header and the extraction request, and maps results to pages with their summary, dropping the empty one', async () => {
     let seen;
     const fetchImpl = async (url, init) => {
       seen = { url, init };
       return new Response(JSON.stringify(exaResponse), { status: 200 });
     };
-    const pages = await createExaSearch({ EXA_API_KEY: 'test-key' }, fetchImpl).search({ adapter: 'exa', query: 'shared services 2027', includeDomains: ['10times.com'] });
+    const { pages, costUsd } = await createExaSearch({ EXA_API_KEY: 'test-key' }, fetchImpl).search({ adapter: 'exa', query: 'shared services 2027', includeDomains: ['10times.com'] });
     expect(seen.url).toBe('https://api.exa.ai/search');
     expect(seen.init.method).toBe('POST');
     expect(seen.init.headers['x-api-key']).toBe('test-key');
     expect(JSON.parse(seen.init.body)).toEqual({
-      query: 'shared services 2027', numResults: 10, type: 'auto', contents: { text: { maxCharacters: 3000 } }, includeDomains: ['10times.com'],
+      query: 'shared services 2027', numResults: 10, type: 'auto', includeDomains: ['10times.com'],
+      contents: { text: { maxCharacters: MAX_PAGE_CHARS }, summary: { query: SUMMARY_QUERY, schema: EVENT_SCHEMA } },
     });
     expect(pages).toHaveLength(2);
     expect(pages[0]).toEqual({
       url: 'https://www.ssonetwork.com/events-ssoweek', title: 'SSOW Orlando 2027 | Shared Services & Outsourcing Week',
-      text: exaResponse.results[0].text, adapter: 'exa',
+      text: exaResponse.results[0].text, summary: exaResponse.results[0].summary, adapter: 'exa',
     });
+    expect(costUsd).toBe(0.027);
+  });
+
+  it('asks Exa for the fields the checks need, requiring only the event flag', () => {
+    expect(Object.keys(EVENT_SCHEMA.properties).sort()).toEqual([
+      'cancelled', 'city', 'country', 'endDate', 'isEvent', 'name', 'online', 'organiser', 'quotes', 'startDate',
+    ]);
+    expect(EVENT_SCHEMA.required).toEqual(['isEvent']);
+    expect(Object.keys(EVENT_SCHEMA.properties.quotes.properties).sort()).toEqual(['city', 'dates', 'name']);
+    expect(SUMMARY_QUERY).toMatch(/copied exactly/i);
+    expect(SUMMARY_QUERY).toMatch(/not about one specific/i);
+  });
+
+  it('keeps a page whose summary is missing, so the run can say it could not be read', async () => {
+    const results = [{ url: 'https://a.example/x', title: 'A', text: 'Some text' }];
+    const { pages } = await createExaSearch({ EXA_API_KEY: 'k' }, respond(200, { results })).search({ adapter: 'exa', query: 'q' });
+    expect(pages).toEqual([{ url: 'https://a.example/x', title: 'A', text: 'Some text', summary: null, adapter: 'exa' }]);
+  });
+
+  it('asks for no summaries when Claude will read the pages, and prices the call without them', async () => {
+    let body;
+    const fetchImpl = async (_url, init) => {
+      body = JSON.parse(init.body);
+      return new Response(JSON.stringify({ results: exaResponse.results }), { status: 200 });
+    };
+    const exa = createExaSearch({ EXA_API_KEY: 'k' }, fetchImpl, { summaries: false });
+    const { costUsd } = await exa.search({ adapter: 'exa', query: 'q' });
+    expect(exa.summaries).toBe(false);
+    expect(body.contents).toEqual({ text: { maxCharacters: MAX_PAGE_CHARS } });
+    // $7 per 1,000 searches, plus $1 per 1,000 pages for text alone
+    expect(costUsd).toBeCloseTo(0.007 + 3 * 0.001, 9);
+    expect(createExaSearch({ EXA_API_KEY: 'k' }, fetchImpl).summaries).toBe(true);
   });
 
   it('sends excludeDomains for the open-web pass and nothing else', async () => {
@@ -111,8 +145,16 @@ describe('createExaSearch', () => {
     expect(body).not.toHaveProperty('includeDomains');
   });
 
-  it('copes with a response that has no results', async () => {
-    expect(await createExaSearch({ EXA_API_KEY: 'k' }, respond(200, {})).search({ adapter: 'exa', query: 'q' })).toEqual([]);
+  it('copes with a response that has no results, and still counts the search it paid for', async () => {
+    expect(await createExaSearch({ EXA_API_KEY: 'k' }, respond(200, {})).search({ adapter: 'exa', query: 'q' })).toEqual({ pages: [], costUsd: 0.007 });
+  });
+
+  it("uses the cost Exa reports, and falls back to Exa's published prices when it does not", async () => {
+    const { costUsd } = await createExaSearch({ EXA_API_KEY: 'k' }, respond(200, { results: exaResponse.results })).search({ adapter: 'exa', query: 'q' });
+    // $7 per 1,000 searches, plus $1 per 1,000 pages for text and $1 per 1,000 pages for summaries
+    expect(costUsd).toBeCloseTo(0.007 + 3 * 0.002, 9);
+    const odd = await createExaSearch({ EXA_API_KEY: 'k' }, respond(200, { results: [], costDollars: { total: 'lots' } })).search({ adapter: 'exa', query: 'q' });
+    expect(odd.costUsd).toBeCloseTo(0.007, 9);
   });
 
   it('throws a retryable SourceError on 429 and 5xx and a non-retryable one on 401', async () => {

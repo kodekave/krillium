@@ -13,8 +13,8 @@ const orlando = { name: 'SSOW Orlando', startDate: '2027-03-08', city: 'Orlando'
 const pageA = eventPage('https://ssonetwork.com/orlando', orlando);
 
 const feeds = { list: async () => [] };
-const deps = (over = {}) => ({ pages: fakeSearch([pageA]), feeds, model: fakeModel(), ...over });
-const START = { query: 'shared services', from: '2027-01-01', to: '2027-06-30', topics: [] };
+const deps = (over = {}) => ({ pages: fakeSearch([pageA]), feeds, ...over });
+const START = { query: 'shared services', from: '2027-01-01', to: '2027-06-30' };
 
 let member;
 let admin;
@@ -36,8 +36,8 @@ async function autoAdd() {
     name: 'SSOW Orlando', organiser: 'SSON', startDate: '2027-03-08', endDate: '2027-03-11', city: 'Orlando', country: 'US',
     online: false, cancelled: false, url: `https://${sourceDomain}/ssow`, sourceDomain, adapter: 'exa', title: 'SSOW Orlando', quotes: { dates: '8-11 March 2027' }, topicHits: 1,
   });
-  const { candidateId } = await saveGroup(env.DB, buildGroup(['ssonetwork.com', 'luminik.io', '10times.com'].map(obs)), NOW);
-  return (await reevaluate(env.DB, candidateId, NOW)).eventId;
+  const { candidateId } = await saveGroup(env.DB, 1, buildGroup(['ssonetwork.com', 'luminik.io', '10times.com'].map(obs)), NOW);
+  return (await reevaluate(env.DB, 1, candidateId, NOW)).eventId;
 }
 
 describe('authentication and settings', () => {
@@ -67,13 +67,20 @@ describe('authentication and settings', () => {
 
   it('the settings response lists the missing secrets so the page can say so before a search', async () => {
     expect((await data(await api(createHandler({ discovery: deps() }), '/api/discovery/settings'))).missing).toEqual([]);
-    expect((await data(await api(createHandler(), '/api/discovery/settings'))).missing).toEqual(['EXA_API_KEY', 'ANTHROPIC_API_KEY']);
+    expect((await data(await api(createHandler(), '/api/discovery/settings'))).missing).toEqual(['EXA_API_KEY']);
     expect((await data(await api(createHandler({ discovery: deps({ pages: null }) }), '/api/discovery/settings'))).missing).toEqual(['EXA_API_KEY']);
   });
 
-  it('a saved settings response does not carry the missing list', async () => {
+  it('the settings response says who reads the pages: Exa alone, or Claude once an Anthropic key is set', async () => {
+    expect((await data(await api(createHandler({ discovery: deps() }), '/api/discovery/settings'))).reader).toBe('exa');
+    expect((await data(await api(createHandler({ discovery: deps({ model: fakeModel() }) }), '/api/discovery/settings'))).reader).toBe('claude');
+  });
+
+  it('a saved settings response carries neither the missing list nor the reader', async () => {
     const saved = await api(createHandler({ discovery: deps() }), '/api/discovery/settings', { method: 'PUT', token: admin, body: { maxPages: 60 } });
-    expect(await data(saved)).not.toHaveProperty('missing');
+    const body = await data(saved);
+    expect(body).not.toHaveProperty('missing');
+    expect(body).not.toHaveProperty('reader');
   });
 
   it('rejects invalid settings with the reasons', async () => {
@@ -90,19 +97,23 @@ describe('starting a search', () => {
     expect(response.status).toBe(503);
     const body = await response.json();
     expect(body.error).toBe('discovery is not set up');
-    expect(body.missing).toEqual(['EXA_API_KEY', 'ANTHROPIC_API_KEY']);
+    expect(body.missing).toEqual(['EXA_API_KEY']);
   });
 
-  it('names only the secret that is missing', async () => {
-    const handler = createHandler({ discovery: deps({ model: null }) });
-    expect((await (await api(handler, '/api/search', { method: 'POST', body: START })).json()).missing).toEqual(['ANTHROPIC_API_KEY']);
+  it('names the Exa key when search is not set up, and starts nothing', async () => {
+    const handler = createHandler({ discovery: deps({ pages: null }) });
+    const response = await api(handler, '/api/search', { method: 'POST', body: START });
+    expect(response.status).toBe(503);
+    expect((await response.json()).missing).toEqual(['EXA_API_KEY']);
+    expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM search_runs').first()).n).toBe(0);
   });
 
   it('validates its input', async () => {
     const handler = createHandler({ discovery: deps() });
     const bad = [
       {}, { query: 'a' }, { query: 'x'.repeat(201) }, { ...START, from: '2027-13-01' }, { ...START, from: '2027-06-30', to: '2027-01-01' },
-      { ...START, region: 'r'.repeat(61) }, { ...START, topics: new Array(9).fill('erp') }, { ...START, topics: [3] }, { ...START, topics: 'erp' },
+      { ...START, region: 'r'.repeat(61) }, { ...START, sectors: 'pharma' }, { ...START, sectors: [3] }, { ...START, sectors: ['nope'] },
+      { ...START, sectors: new Array(13).fill('pharma') },
     ];
     for (const body of bad) {
       expect((await api(handler, '/api/search', { method: 'POST', body })).status, JSON.stringify(body)).toBe(400);
@@ -124,7 +135,49 @@ describe('starting a search', () => {
     const stored = JSON.parse((await env.DB.prepare('SELECT query_json FROM search_runs WHERE id = ?').bind(run.id).first()).query_json).query;
     expect(stored.from).toBe(new Date().toISOString().slice(0, 10));
     expect(stored.to > stored.from).toBe(true);
+    expect(stored.sectors).toEqual(['procurement', 'finance-ops', 'pharma', 'manufacturing', 'banking']);
     expect(stored.topics).toContain('shared services');
+  });
+});
+
+describe('choosing sectors', () => {
+  const stored = async (run) => JSON.parse((await env.DB.prepare('SELECT query_json FROM search_runs WHERE id = ?').bind(run.id).first()).query_json).query;
+  const start = async (handler, body) => data(await api(handler, '/api/search', { method: 'POST', body: { ...START, ...body } }));
+
+  it('searches the sectors you pick, one topic from each in turn, in the order of the settings', async () => {
+    const { run } = await start(createHandler({ discovery: deps() }), { sectors: ['banking', 'pharma'] });
+    const query = await stored(run);
+    expect(query.sectors).toEqual(['pharma', 'banking']);
+    expect(query.topics.slice(0, 4)).toEqual(['pharma supply chain', 'banking operations', 'pharmaceutical procurement', 'insurance operations']);
+  });
+
+  it('searches no topics when you pick none, so only your own words are used', async () => {
+    const { run } = await start(createHandler({ discovery: deps() }), { sectors: [] });
+    const query = await stored(run);
+    expect(query).toMatchObject({ sectors: [], topics: [] });
+  });
+
+  it('ignores topics sent by an older page', async () => {
+    const { run } = await start(createHandler({ discovery: deps() }), { sectors: ['pharma'], topics: ['something else'] });
+    expect((await stored(run)).topics).not.toContain('something else');
+  });
+
+  it('leaves a switched-off sector out by default and refuses it when asked for', async () => {
+    const handler = createHandler({ discovery: deps() });
+    const current = (await data(await api(handler, '/api/discovery/settings'))).sectors;
+    const off = current.map((s) => (s.id === 'banking' ? { ...s, enabled: false } : s));
+    expect((await api(handler, '/api/discovery/settings', { method: 'PUT', token: admin, body: { sectors: off } })).status).toBe(200);
+    const refused = await api(handler, '/api/search', { method: 'POST', body: { ...START, sectors: ['banking'] } });
+    expect(refused.status).toBe(400);
+    const { run } = await start(handler, {});
+    expect((await stored(run)).sectors).toEqual(['procurement', 'finance-ops', 'pharma', 'manufacturing']);
+  });
+
+  it('refuses a settings change that leaves a sector malformed, with the reason', async () => {
+    const handler = createHandler({ discovery: deps() });
+    const bad = await api(handler, '/api/discovery/settings', { method: 'PUT', token: admin, body: { sectors: [{ id: 'A b', name: 'x', topics: ['t'], enabled: true }] } });
+    expect(bad.status).toBe(400);
+    expect((await bad.json()).errors.join(' ')).toMatch(/sector 1/);
   });
 });
 
@@ -134,7 +187,8 @@ describe('running a search', () => {
     const started = await api(handler, '/api/search', { method: 'POST', body: START });
     expect(started.status).toBe(201);
     const { run, items } = await data(started);
-    expect(run).toMatchObject({ status: 'running', planned: 4, done: 0 });
+    // every sector is searched by default: 12 web searches (the most a run makes) plus the 2 Confs.tech files for 2027
+    expect(run).toMatchObject({ status: 'running', planned: 14, done: 0 });
     expect(items).toEqual([]);
 
     const stepped = await data(await api(handler, `/api/search/${run.id}/step`, { method: 'POST', body: {} }));
@@ -227,6 +281,17 @@ describe('radar and event detail', () => {
     const radar = await data(await api(handler, '/api/radar'));
     expect(radar.find((e) => e.id === eventId)).toMatchObject({ origin: 'discovered', autoAdded: true });
     expect(radar.find((e) => e.id === imported.id)).toMatchObject({ origin: 'import', autoAdded: false });
+  });
+
+  it("the radar payload and event detail carry each event's sectors", async () => {
+    const handler = createHandler({ discovery: deps() });
+    await addEvent({ id: 'tagged', name: 'Tagged Event' });
+    await env.DB.prepare("UPDATE events SET sectors = '[\"pharma\",\"banking\"]' WHERE id = 'tagged'").run();
+    await addEvent({ id: 'plain', name: 'Plain Event' });
+    const radar = await data(await api(handler, '/api/radar'));
+    expect(radar.find((e) => e.id === 'tagged').sectors).toEqual(['pharma', 'banking']);
+    expect(radar.find((e) => e.id === 'plain').sectors).toEqual([]);
+    expect((await data(await api(handler, '/api/events/tagged'))).sectors).toEqual(['pharma', 'banking']);
   });
 
   it('event detail lists the pages that found a discovered event', async () => {

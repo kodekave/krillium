@@ -1,6 +1,7 @@
 import { validateConfig } from '../../../site/js/shared/scoring.js';
 import { error, json, readJson } from '../http.js';
-import { getRankedEvents, saveConfig } from '../db.js';
+import { getActiveConfig, getRankedEvents, saveConfig } from '../db.js';
+import { remember } from '../memory.js';
 
 const CONFIG_KEYS = ['weights', 'density', 'thresholds', 'persona', 'eventRole', 'contact', 'homeBases'];
 const CHOICES = new Set(['attend', 'watch', 'skip']);
@@ -12,7 +13,11 @@ export async function putIcp({ request, env, user }) {
   const cfg = Object.fromEntries(CONFIG_KEYS.filter((k) => k in body).map((k) => [k, body[k]]));
   const { ok, errors } = validateConfig(cfg);
   if (!ok) return error(400, 'invalid config', { errors });
-  return json({ version: await saveConfig(env.DB, cfg, user.email) });
+  const current = await getActiveConfig(env.DB, user.workspaceId);
+  const version = await saveConfig(env.DB, user.workspaceId, cfg, user.email);
+  const changed = CONFIG_KEYS.filter((k) => k in cfg && JSON.stringify(cfg[k]) !== JSON.stringify(current[k]));
+  await remember(env.DB, user.workspaceId, [{ actor: user.email, kind: 'icp.saved', subject: version, detail: { version, changed } }]);
+  return json({ version });
 }
 
 export async function postDecision({ request, env, user }) {
@@ -22,16 +27,24 @@ export async function postDecision({ request, env, user }) {
   if (body.choice === 'skip' && !reason) return error(400, 'a reason is required to skip');
   const note = typeof body.note === 'string' ? body.note.trim().slice(0, 2000) : null;
 
-  const { cfg, events } = await getRankedEvents(env.DB);
+  const { cfg, events } = await getRankedEvents(env.DB, user.workspaceId);
   const event = events.find((e) => e.id === body.eventId);
   if (!event) return error(404, 'event not found');
 
   const result = await env.DB.prepare(
-    `INSERT INTO decisions (event_id, user, choice, reason, note, score_snapshot, config_version)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO decisions (workspace_id, event_id, user, choice, reason, note, score_snapshot, config_version)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
   )
-    .bind(event.id, user.email, body.choice, reason || null, note, event.priority, cfg.version)
+    .bind(user.workspaceId, event.id, user.email, body.choice, reason || null, note, event.priority, cfg.version)
     .run();
+  // The note is free text and may name a person, so memory keeps only the choice, the reason and the event's facts.
+  await remember(env.DB, user.workspaceId, [{
+    actor: user.email, kind: 'event.decision', subject: event.id,
+    detail: {
+      choice: body.choice, reason: reason || null, name: event.name, organiser: event.organiser, city: event.city,
+      country: event.country, sectors: event.sectors, priority: event.priority, icpVersion: cfg.version,
+    },
+  }]);
   return json({ id: result.meta.last_row_id }, 201);
 }
 

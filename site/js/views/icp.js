@@ -1,6 +1,10 @@
 import { h } from '../dom.js';
 import { emptyState } from '../empty-state.js';
 import { applyEdit, createDraftStore, describeDraft, previewRanking, setDensityShare } from '../icp-draft.js';
+import { addSector, describeSectors, parseTopics, removeSector, topicsText, updateSector } from '../sector-draft.js';
+import { timeAgo } from '../format.js';
+import { describeMemory } from '../shared/memory.js';
+import { MAX_NAME_LENGTH, MAX_SECTORS } from '../shared/sectors.js';
 
 const STATUS_LABEL = { 'must-attend': 'Must-attend', consider: 'Consider', watch: 'Watch' };
 const store = createDraftStore();
@@ -28,8 +32,21 @@ export function mount(root, ctx) {
   const resetBtn = h('button', { type: 'button', class: 'btn', disabled: true, onclick: reset }, 'Discard changes');
   const form = h('div', { class: 'icp-form' });
   const preview = h('aside', { class: 'icp-preview glass' });
+
+  // Sectors are saved on their own, through the discovery settings, not as a version of the ranking above.
+  const admin = () => ctx.session.getUser()?.role === 'admin';
+  let sectorsSaved = [];
+  let sectorsDraft = [];
+  const sectorsBox = h('section', { class: 'icp-card glass icp-sectors' });
+  // What this workspace has decided and done, from its first day. Read-only for now.
+  const memoryBox = h('section', { class: 'icp-card glass icp-memory' });
+  const sectorList = h('div', { class: 'sector-list' });
+  const sectorErrors = h('ul', { class: 'errors', role: 'alert', hidden: true });
+  const sectorStatus = h('p', { class: 'muted small', role: 'status' });
+  const sectorSave = h('button', { type: 'button', class: 'btn btn-primary', disabled: true, onclick: () => saveSectors() }, 'Save sectors');
+  const sectorReset = h('button', { type: 'button', class: 'btn', disabled: true, onclick: () => resetSectors() }, 'Discard changes');
   const head = h('header', {}, h('h1', {}, 'ICP brain'), h('p', { class: 'muted' }, 'Change what a good event looks like. The ranking on the right updates as you type; nothing changes for the team until you save.'));
-  root.append(h('section', { class: 'view' }, head, h('div', { class: 'icp-actions' }, saveBtn, resetBtn, status), errors, h('div', { class: 'icp-grid' }, form, preview)));
+  root.append(h('section', { class: 'view' }, head, h('div', { class: 'icp-actions' }, saveBtn, resetBtn, status), errors, h('div', { class: 'icp-grid' }, form, preview), sectorsBox, memoryBox));
 
   function edit(path, value) {
     draft = path === 'weights.icpDensityShare' ? setDensityShare(draft, value) : applyEdit(draft, path, value);
@@ -85,6 +102,81 @@ export function mount(root, ctx) {
     );
   }
 
+  function refreshSectors() {
+    const state = describeSectors(sectorsSaved, sectorsDraft);
+    sectorSave.disabled = !state.dirty || !state.valid;
+    sectorReset.disabled = !state.dirty;
+    sectorErrors.hidden = state.valid;
+    sectorErrors.replaceChildren(...state.errors.map((e) => h('li', {}, e)));
+  }
+
+  function editSector(index, patch) {
+    sectorsDraft = updateSector(sectorsDraft, index, patch);
+    refreshSectors();
+  }
+
+  function renderSectorRows() {
+    const canEdit = admin();
+    sectorList.replaceChildren(...sectorsDraft.map((s, i) => h('div', { class: 'sector-row' },
+      h('label', { class: 'field' }, 'Name', h('input', { type: 'text', value: s.name, maxlength: MAX_NAME_LENGTH, disabled: !canEdit, oninput: (ev) => editSector(i, { name: ev.target.value }) })),
+      h('label', { class: 'field sector-topics' }, 'Topics, separated by commas', h('input', { type: 'text', value: topicsText(s.topics), disabled: !canEdit, oninput: (ev) => editSector(i, { topics: parseTopics(ev.target.value) }) })),
+      h('label', { class: 'field sector-on' }, h('span', {}, 'On'), h('input', { type: 'checkbox', checked: s.enabled, disabled: !canEdit, onchange: (ev) => editSector(i, { enabled: ev.target.checked }) })),
+      canEdit ? h('button', { type: 'button', class: 'btn', 'aria-label': `Remove ${s.name}`, onclick: () => { sectorsDraft = removeSector(sectorsDraft, i); renderSectorRows(); refreshSectors(); } }, 'Remove') : null)));
+  }
+
+  function renderSectors() {
+    const canEdit = admin();
+    const add = h('button', { type: 'button', class: 'btn', disabled: sectorsDraft.length >= MAX_SECTORS, onclick: () => { sectorsDraft = addSector(sectorsDraft); renderSectorRows(); refreshSectors(); } }, 'Add a sector');
+    // replaceChildren() prints a null argument as the text "null", so the empty slots are filtered out first.
+    sectorsBox.replaceChildren(...[
+      h('h2', {}, 'Sectors'),
+      h('p', { class: 'muted small' }, 'The kinds of event you look for. A search uses the topics of each sector, and an event is tagged with the sectors whose topics its page mentions. Sectors are saved on their own, apart from the ranking above, and searches use them as soon as they are saved.'),
+      canEdit ? null : h('p', { class: 'muted small' }, 'Only an admin can change sectors.'),
+      sectorList,
+      sectorErrors,
+      canEdit ? h('div', { class: 'icp-actions' }, add, sectorSave, sectorReset, sectorStatus) : null,
+    ].filter(Boolean));
+    renderSectorRows();
+    refreshSectors();
+  }
+
+  function showSectors() {
+    const list = ctx.sectors.list();
+    if (!list.length) {
+      sectorsBox.replaceChildren(h('h2', {}, 'Sectors'), h('p', { class: 'muted small' }, 'The sectors could not load. Reload the page to try again.'));
+      return;
+    }
+    sectorsSaved = structuredClone(list);
+    sectorsDraft = structuredClone(list);
+    renderSectors();
+  }
+
+  function resetSectors() {
+    sectorsDraft = structuredClone(sectorsSaved);
+    sectorStatus.textContent = '';
+    renderSectors();
+  }
+
+  async function saveSectors() {
+    sectorSave.disabled = true;
+    const result = await ctx.api.put('/api/discovery/settings', { sectors: sectorsDraft });
+    if (disposed) return;
+    if (result.ok) {
+      ctx.sectors.set(result.data.sectors);
+      sectorsSaved = structuredClone(result.data.sectors);
+      sectorsDraft = structuredClone(sectorsSaved);
+      sectorStatus.textContent = 'Saved. New searches use these sectors now.';
+      renderSectors();
+      loadMemory();
+    } else {
+      sectorStatus.textContent = result.stale ? 'Cannot reach the service. Your changes are kept here; try again.'
+        : result.status === 401 ? 'Your session ended. Sign in and save again; your changes are kept.'
+          : result.status === 403 ? 'Only an admin can change sectors.'
+            : `Not saved: ${result.errors?.join(' ') ?? result.error ?? 'try again'}.`;
+      refreshSectors();
+    }
+  }
+
   async function save() {
     saveBtn.disabled = true;
     const result = await ctx.api.put('/api/icp', draft);
@@ -96,6 +188,7 @@ export function mount(root, ctx) {
       status.textContent = `Saved as version ${saved.version}. The radar uses it now.`;
       renderForm();
       refresh();
+      loadMemory();
     } else {
       status.textContent = result.stale ? 'Cannot reach the service. Your changes are kept here; try again.' : result.status === 401 ? 'Your session ended. Sign in and save again; your changes are kept.' : `Not saved: ${result.error ?? 'try again'}.`;
       if (result.errors) errors.replaceChildren(...result.errors.map((e) => h('li', {}, e)));
@@ -112,8 +205,33 @@ export function mount(root, ctx) {
     refresh();
   }
 
+  // The newest entries of the workspace's memory, in plain words. A failure here never blocks the rest of the screen.
+  async function loadMemory() {
+    const res = await ctx.api.get('/api/memory?limit=20');
+    if (disposed) return;
+    if (!res.ok) {
+      if (res.status === 401) return;
+      memoryBox.replaceChildren(h('h2', {}, 'Memory'), h('p', { class: 'muted small' }, 'The memory could not load. Reload the page to try again.'));
+      return;
+    }
+    const { total, items } = res.data;
+    // replaceChildren() prints a null argument as the text "null", so the empty slots are filtered out first.
+    memoryBox.replaceChildren(...[
+      h('h2', {}, 'Memory'),
+      h('p', { class: 'muted small' }, 'What this workspace has decided and done, from its first day. It is private to this workspace, and nothing here changes how events are ranked yet.'),
+      total
+        ? h('p', { class: 'small' }, `${total} ${total === 1 ? 'thing' : 'things'} remembered${total > items.length ? `. The latest ${items.length}:` : ':'}`)
+        : h('p', { class: 'muted small' }, 'Nothing yet. Decisions you make from here on are recorded.'),
+      items.length
+        ? h('ul', { class: 'memory-list' }, items.map((item) => h('li', {},
+          h('span', {}, describeMemory(item)),
+          h('span', { class: 'muted small' }, [timeAgo(item.at), item.actor && item.actor !== 'system' ? item.actor : null].filter(Boolean).join(' · ')))))
+        : null,
+    ].filter(Boolean));
+  }
+
   async function load() {
-    const [icp, radar] = await Promise.all([ctx.api.get('/api/icp'), ctx.api.get('/api/radar')]);
+    const [icp, radar] = await Promise.all([ctx.api.get('/api/icp'), ctx.api.get('/api/radar'), ctx.sectors.load()]);
     if (disposed) return;
     if (!icp.ok || !radar.ok) {
       if (icp.status === 401 || radar.status === 401) return;
@@ -125,6 +243,8 @@ export function mount(root, ctx) {
     draft = store.get() && store.get().version === saved.version ? store.get() : structuredClone(saved);
     renderForm();
     refresh();
+    showSectors();
+    loadMemory();
   }
 
   window.addEventListener('radar:reauth', load);
