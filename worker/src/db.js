@@ -45,7 +45,7 @@ export function freshnessFor(lastChecked, lastRealChange, now) {
 
 const RADAR_SQL = `
   SELECT e.id, e.name, e.organiser, e.city, e.country, e.lat, e.lon, e.start_date, e.end_date,
-    e.source_url, e.last_checked,
+    e.source_url, e.last_checked, e.origin, e.auto_added,
     COALESCE(e.fit, 0) + COALESCE(e.public_names, 0) + COALESCE(e.timing, 0) + COALESCE(e.distance, 0) AS event_score,
     (SELECT COUNT(*) FROM event_companies ec JOIN companies c ON c.id = ec.company_id
        WHERE ec.event_id = e.id AND c.vendor = 0
@@ -83,6 +83,8 @@ export async function getRankedEvents(db, now = Date.now()) {
     accountOnly: r.account_only,
     sourceUrl: r.source_url,
     lastChecked: r.last_checked,
+    origin: r.origin ?? 'import',
+    autoAdded: Boolean(r.auto_added),
     freshness: freshnessFor(r.last_checked, r.last_real_change, now),
   }));
   return { cfg, events: rankEvents(events, cfg) };
@@ -152,10 +154,14 @@ export async function getEventDetail(db, id, user = null, now = Date.now()) {
   ];
 
   const urls = [event.sourceUrl, ...people.map((p) => p.source_url), ...soloCompanies.map((c) => c.source_url)];
-  const sources = [...new Set(urls.filter(Boolean))].slice(0, 11).map((url, i) => ({
+  const known = [...new Set(urls.filter(Boolean))].slice(0, 11).map((url, i) => ({
     label: i === 0 && url === event.sourceUrl ? 'Organiser page' : 'Public source',
     url,
   }));
+  // Pages that discovery found for this event; the drawer prints each as "label: host".
+  const found = (await db.prepare('SELECT url FROM event_sources WHERE event_id = ? ORDER BY added_at, url').bind(id).all()).results;
+  const listed = new Set(known.map((s) => s.url));
+  const sources = [...known, ...found.filter((f) => !listed.has(f.url)).map((f) => ({ label: 'Found by search', url: f.url }))].slice(0, 12);
 
   const { tierA, tierB, accountOnly } = event.counts;
   const reasons = [];
