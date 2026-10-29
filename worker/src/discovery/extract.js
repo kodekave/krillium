@@ -78,14 +78,40 @@ function validIso(value) {
   return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day ? { year, month, day } : null;
 }
 
-// The quote must show the year, the day and the month. A month written as a word wins over any bare number,
-// so "8-11 March" cannot be passed off as the 11th month. Month-only or TBA quotes show no day and fail.
+// Dates written out in a quote, in the order they appear. Only whole dates count: "Q1 2027", "H2 2027",
+// "March 2027, 9:00 - 17:00" and "TBA" contain none. A numeric date such as 03/08/2027 that could be read day-first
+// or month-first is left out rather than guessed.
+const MONTH_WORDS = [...MONTH_OF.keys()].sort((a, b) => b.length - a.length).join('|');
+const ORD = '(?:st|nd|rd|th)?';
+const DAY_FIRST = new RegExp(`(?<!\\d)(\\d{1,2})${ORD}\\.?(?:\\s*(?:-|to|bis|au|al)\\s*\\d{1,2}${ORD}\\.?)?\\s*(?:of\\s+|de\\s+)?(${MONTH_WORDS})\\b\\.?(?:,?\\s*(\\d{4})(?!\\d))?`, 'g');
+const MONTH_FIRST = new RegExp(`(?<![a-z])(${MONTH_WORDS})\\b\\.?\\s+(\\d{1,2})${ORD}(?!\\d)(?:\\s*(?:-|to)\\s*\\d{1,2}${ORD}(?!\\d))?(?:,?\\s*(\\d{4})(?!\\d))?`, 'g');
+
+function dateMentions(text) {
+  const found = [];
+  const add = (index, day, month, year) => {
+    if (month >= 1 && month <= 12 && day >= 1 && day <= 31) found.push({ index, day, month, year });
+  };
+  for (const m of text.matchAll(/(?<!\d)(\d{4})-(\d{2})-(\d{2})(?!\d)/g)) add(m.index, Number(m[3]), Number(m[2]), Number(m[1]));
+  for (const m of text.matchAll(/(?<!\d)(\d{1,2})\.(\d{1,2})\.(\d{4})(?!\d)/g)) add(m.index, Number(m[1]), Number(m[2]), Number(m[3]));
+  for (const m of text.matchAll(/(?<!\d)(\d{1,2})[/-](\d{1,2})[/-](\d{4})(?!\d)/g)) {
+    const [a, b, year] = [Number(m[1]), Number(m[2]), Number(m[3])];
+    if (a > 12 && b <= 12) add(m.index, a, b, year);
+    else if (b > 12 && a <= 12) add(m.index, b, a, year);
+    else if (a === b) add(m.index, a, a, year);
+  }
+  for (const m of text.matchAll(DAY_FIRST)) add(m.index, Number(m[1]), MONTH_OF.get(m[2]), m[3] ? Number(m[3]) : null);
+  for (const m of text.matchAll(MONTH_FIRST)) add(m.index, Number(m[2]), MONTH_OF.get(m[1]), m[3] ? Number(m[3]) : null);
+  return found.sort((a, b) => a.index - b.index);
+}
+
+// The quote's first written date must be the start date, so the end of a range or an unrelated later date
+// cannot stand in for it, and its year must be the start year.
 function quoteSupportsDate(parts, quote) {
   const text = norm(quote);
-  const numbers = (text.match(/\d+/g) ?? []).map(Number);
-  if (!numbers.includes(parts.year) || !numbers.filter((n) => n !== parts.year).includes(parts.day)) return false;
-  const monthWords = (text.match(/[a-z]+/g) ?? []).filter((w) => MONTH_OF.has(w)).map((w) => MONTH_OF.get(w));
-  return monthWords.length ? monthWords.includes(parts.month) : numbers.filter((n) => n !== parts.year).includes(parts.month);
+  const first = dateMentions(text)[0];
+  if (!first || first.day !== parts.day || first.month !== parts.month) return false;
+  const years = (text.match(/(?<!\d)\d{4}(?!\d)/g) ?? []).map(Number);
+  return first.year ? first.year === parts.year : years.includes(parts.year);
 }
 
 const clean = (value) => (typeof value === 'string' && value.trim() ? value.trim() : null);
@@ -132,7 +158,8 @@ export async function extractBatch(pages, model, { topics = [] } = {}) {
   const { text, usage } = await model.extract(buildPrompt(pages));
   const parsed = parseModelJson(text);
   if (!parsed) {
-    return { observations: [], dropped: pages.map((p) => ({ url: p.url, reason: 'model answer was not valid JSON' })), usage };
+    // The answer could not be read, so nothing is known about these pages. The caller must not remember them as empty.
+    return { observations: [], dropped: pages.map((p) => ({ url: p.url, reason: 'model answer was not valid JSON' })), usage, unreadable: true };
   }
   const observations = [];
   const dropped = [];
@@ -153,5 +180,5 @@ export async function extractBatch(pages, model, { topics = [] } = {}) {
   pages.forEach((page, i) => {
     if (!seen.has(i)) dropped.push({ url: page.url, reason: 'no event on page' });
   });
-  return { observations, dropped, usage };
+  return { observations, dropped, usage, unreadable: false };
 }

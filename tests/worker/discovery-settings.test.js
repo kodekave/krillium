@@ -59,7 +59,7 @@ describe('settings', () => {
 
 describe('daySpend', () => {
   const run = (started, spend) =>
-    env.DB.prepare("INSERT INTO search_runs (query_json, created_by, started, model_spend) VALUES ('{}', 'member@example.test', ?, ?)").bind(started, spend).run();
+    env.DB.prepare("INSERT INTO search_runs (query_json, created_by, started, model_spend, status) VALUES ('{}', 'member@example.test', ?, ?, 'done')").bind(started, spend).run();
 
   it("sums only today's runs, whatever timestamp format they were stored in", async () => {
     await run('2026-10-29T08:00:00.000Z', 0.1);

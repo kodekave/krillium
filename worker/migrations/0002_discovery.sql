@@ -9,6 +9,7 @@ CREATE TABLE search_runs (
   status TEXT NOT NULL DEFAULT 'running',
   created_by TEXT NOT NULL,
   started TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
   finished TEXT,
   planned INTEGER NOT NULL DEFAULT 0,
   done INTEGER NOT NULL DEFAULT 0,
@@ -19,6 +20,8 @@ CREATE TABLE search_runs (
   error TEXT
 );
 CREATE INDEX idx_search_runs_user ON search_runs (created_by, status);
+-- One running search per person, enforced by the database so two tabs cannot start two.
+CREATE UNIQUE INDEX idx_one_running_search_per_user ON search_runs (created_by) WHERE status = 'running';
 
 -- One row per cluster of sources describing the same event. event_id has no foreign key on purpose:
 -- undoing an auto-add deletes the event while the candidate row stays as the record of the rejection.

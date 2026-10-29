@@ -86,13 +86,45 @@ describe('cluster', () => {
     expect(groups[0].conflict).toBeNull();
   });
 
-  it('a missing city does not conflict but two different cities in one country do', () => {
+  it('counts one site under several domains once', () => {
+    const sites = (...domains) => domains.map((d) => obs({ sourceDomain: d, url: `https://${d}/x` }));
+    const eventbrite = run(sites('eventbrite.com', 'eventbrite.co.uk', 'eventbrite.de')).groups[0];
+    expect(eventbrite.domains).toHaveLength(1);
+    expect(decide(eventbrite, NOW)).toEqual({ action: 'inbox', reason: '1 of 3 sites' });
+    expect(run(sites('lu.ma', 'luma.com', 'ssonetwork.com')).groups[0].domains).toHaveLength(2);
+    expect(run(sites('bme.de', 'bme.com', 'ssonetwork.com', 'luminik.io')).groups[0].domains).toHaveLength(3);
+  });
+
+  it('keeps sibling events in one country apart even when their names are alike', () => {
+    const orlando = obs({ name: 'Shared Services and Outsourcing Week Orlando', city: 'Orlando', startDate: '2027-03-08' });
+    const chicago = obs({ name: 'Shared Services and Outsourcing Week Chicago', city: 'Chicago', startDate: '2027-04-20', sourceDomain: 'a.com' });
+    expect(run([orlando, chicago]).groups).toHaveLength(2);
+    expect(matchesTracked(chicago, { name: orlando.name, startDate: '2027-03-08', city: 'Orlando', country: 'US' })).toBe(false);
+  });
+
+  it('events outside the chosen dates are filtered, and events that overlap them are kept', () => {
+    const window = { from: '2027-04-01', to: '2027-06-30' };
+    const early = obs({ name: 'Early Forum', startDate: '2027-03-08', endDate: '2027-03-11' });
+    const overlaps = obs({ name: 'Overlap Congress', startDate: '2027-03-30', endDate: '2027-04-02' });
+    const inside = obs({ name: 'Inside Expo', startDate: '2027-05-10', endDate: null });
+    const late = obs({ name: 'Late Symposium', startDate: '2027-07-01', endDate: null });
+    const result = run([early, overlaps, inside, late], { window });
+    expect(result.groups.map((g) => g.name).sort()).toEqual(['Inside Expo', 'Overlap Congress']);
+    expect(result.filtered.map((f) => [f.observation.name, f.reason])).toEqual([['Early Forum', 'outside_dates'], ['Late Symposium', 'outside_dates']]);
+  });
+
+  it('two different stated cities in one country are separate groups, a missing city still joins', () => {
     const base = { name: 'Procurement Summit', country: 'DE' };
     const missing = run([obs({ ...base, city: 'Berlin' }), obs({ ...base, city: null, sourceDomain: 'a.com' })]);
     expect(missing.groups[0].conflict).toBeNull();
     const different = run([obs({ ...base, city: 'Berlin' }), obs({ ...base, city: 'Munich', sourceDomain: 'a.com' })]);
-    expect(different.groups).toHaveLength(1);
-    expect(different.groups[0].conflict).toMatch(/cities disagree/);
+    expect(different.groups).toHaveLength(2);
+    expect(different.groups.every((g) => g.conflict === null)).toBe(true);
+  });
+
+  it('buildGroup still flags stored sources that name different cities', () => {
+    const g = buildGroup([obs({ city: 'Berlin', country: 'DE' }), obs({ city: 'Munich', country: 'DE', sourceDomain: 'a.com' })]);
+    expect(g.conflict).toMatch(/cities disagree/);
   });
 
   it('the same city written two ways is not a conflict', () => {

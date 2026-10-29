@@ -2,10 +2,10 @@ import { env } from 'cloudflare:test';
 import { describe, it, expect, beforeEach } from 'vitest';
 import { ModelError } from '../../worker/src/discovery/model.js';
 import { SourceError } from '../../worker/src/discovery/plan.js';
-import { getRun, startRun, stepRun } from '../../worker/src/discovery/run.js';
+import { cancelRun, getRun, startRun, stepRun } from '../../worker/src/discovery/run.js';
 import { DEFAULT_SETTINGS } from '../../worker/src/discovery/settings.js';
 import { rejectCandidate } from '../../worker/src/discovery/store.js';
-import { addEvent, eventPage, fakeModel, fakeSearch, resetData } from './helpers.js';
+import { addEvent, countingDb, eventPage, fakeModel, fakeSearch, resetData } from './helpers.js';
 
 const NOW = Date.parse('2026-10-29T12:00:00Z');
 const USER = 'member@example.test';
@@ -47,8 +47,8 @@ describe('startRun', () => {
   });
 
   it('a run left running for over 15 minutes no longer blocks a new one', async () => {
-    await env.DB.prepare("INSERT INTO search_runs (query_json, created_by, started, status) VALUES ('{}', ?, ?, 'running')")
-      .bind(USER, new Date(NOW - 20 * 60000).toISOString()).run();
+    await env.DB.prepare("INSERT INTO search_runs (query_json, created_by, started, updated, status) VALUES ('{}', ?, ?, ?, 'running')")
+      .bind(USER, new Date(NOW - 20 * 60000).toISOString(), new Date(NOW - 20 * 60000).toISOString()).run();
     const run = await begin();
     expect(run.status).toBe('running');
     expect((await env.DB.prepare('SELECT status FROM search_runs ORDER BY id LIMIT 1').first()).status).toBe('failed');
@@ -89,7 +89,10 @@ describe('stepRun', () => {
     const again = await step(run.id, w);
     expect(again.run).toMatchObject({ status: 'done', done: 4 });
     expect(w.search.calls).toHaveLength(calls);
-    expect(w.feeds.calls).toEqual([{ adapter: 'confs', file: 'data', year: 2027 }, { adapter: 'confs', file: 'general', year: 2027 }]);
+    expect(w.feeds.calls).toEqual([
+      expect.objectContaining({ adapter: 'confs', file: 'data', year: 2027, from: '2027-01-01', to: '2027-06-30', terms: ['shared', 'services'] }),
+      expect.objectContaining({ adapter: 'confs', file: 'general', year: 2027 }),
+    ]);
   });
 
   it('reaching the run cap stops the run, keeps earlier results and says which cap', async () => {
@@ -267,5 +270,125 @@ describe('stepRun', () => {
     const fed = await step(run3.id, viaFeed);
     expect(fed.items).toEqual([expect.objectContaining({ outcome: 'filtered', reason: 'rejected' })]);
     expect(await count('candidates')).toBe(1);
+  });
+});
+
+describe('what a failing step must not lose', () => {
+  // A model that cannot be read the first time and answers properly after that.
+  function modelThatFailsOnce() {
+    const inner = fakeModel();
+    const calls = [];
+    return { calls, extract: async (req) => (calls.push(req), calls.length === 1 ? { text: 'Sorry, I cannot help.', usage: { input: 500, output: 20 } } : inner.extract(req)) };
+  }
+
+  it('a model answer that cannot be read is noted and not remembered, so the pages are tried again', async () => {
+    const model = modelThatFailsOnce();
+    const w = world({ pages: [pageA] });
+    w.deps.model = model;
+    const run = await begin();
+    const first = await step(run.id, w);
+    expect(first.run.note).toMatch(/could not be read/);
+    expect(first.run).toMatchObject({ modelCalls: 1 });
+    expect(first.run.spendUsd).toBeGreaterThan(0);
+    expect(first.items).toEqual([]);
+    expect(await count('page_cache')).toBe(0);
+    const second = await step(run.id, w);
+    expect(model.calls).toHaveLength(2);
+    expect(second.items[0]).toMatchObject({ outcome: 'inbox', name: 'SSOW Orlando' });
+  });
+
+  it('spend is recorded as soon as the model has answered, even when the step then fails', async () => {
+    const real = env.DB;
+    const failing = {
+      // bind() returns a new statement, so the SQL text is carried across it for the batch below to recognise.
+      prepare: (sql) => {
+        const statement = real.prepare(sql);
+        const bind = statement.bind.bind(statement);
+        statement.bind = (...values) => Object.assign(bind(...values), { sql });
+        return statement;
+      },
+      batch: async (statements) => {
+        if (statements.some((s) => String(s.sql).includes('run_items'))) throw new Error('disk full');
+        return real.batch(statements);
+      },
+    };
+    const w = world({ pages: [pageA] });
+    const run = await begin();
+    const result = await stepRun({ db: failing, runId: run.id, deps: w.deps, settings: settings(), now: NOW });
+    expect(result.run.status).toBe('failed');
+    expect(result.run.error).toMatch(/disk full/);
+    expect(result.run).toMatchObject({ modelCalls: 1 });
+    expect(result.run.spendUsd).toBeCloseTo(0.002, 6);
+  });
+});
+
+describe('the chosen dates', () => {
+  it('events outside them are filtered with a reason and events inside them are kept', async () => {
+    const w = world({ pages: [pageA, pageB] });
+    const run = await startRun(env.DB, USER, { ...query, from: '2027-04-01', to: '2027-06-30' }, settings(), NOW);
+    const { items } = await step(run.id, w);
+    expect(items.find((i) => i.name === 'SSOW Orlando')).toMatchObject({ outcome: 'filtered', reason: 'outside_dates' });
+    expect(items.find((i) => i.name === 'BME Symposium Procurement')).toMatchObject({ outcome: 'inbox' });
+    expect(await count('candidates')).toBe(1);
+  });
+});
+
+describe('the free plan allows 50 database queries per request', () => {
+  const names = ['Alpha', 'Bravo', 'Charlie', 'Delta', 'Echo', 'Foxtrot', 'Golf', 'Hotel', 'India', 'Juliet'];
+  const pagesOf = (n) => names.slice(0, n).map((name, i) => eventPage(`https://q${n}-${i}.example/e`, { name: `${name} Procurement Forum`, startDate: '2027-05-10', city: 'Berlin', country: 'Germany' }));
+
+  it('a step that finds 5 new events stays well inside it', async () => {
+    const counter = countingDb();
+    const w = world({ pages: pagesOf(5) });
+    const run = await begin();
+    const result = await stepRun({ db: counter.db, runId: run.id, deps: w.deps, settings: settings(), now: NOW });
+    expect(result.items).toHaveLength(5);
+    expect(counter.count()).toBeLessThanOrEqual(35);
+  });
+
+  it('a step that finds 10 new events stays inside it', async () => {
+    const counter = countingDb();
+    const w = world({ pages: pagesOf(10) });
+    const run = await begin();
+    const result = await stepRun({ db: counter.db, runId: run.id, deps: w.deps, settings: settings(), now: NOW });
+    expect(result.items).toHaveLength(10);
+    expect(counter.count()).toBeLessThanOrEqual(50);
+  });
+});
+
+describe('stopping a run', () => {
+  it('ends it on the server so the user can search again, and a stopped run does no more work', async () => {
+    const w = world({ pages: [pageA] });
+    const run = await begin();
+    await step(run.id, w);
+    const stopped = await cancelRun(env.DB, run.id, USER, 'member', NOW);
+    expect(stopped.run.status).toBe('stopped');
+    const calls = w.search.calls.length;
+    expect((await step(run.id, w)).run.status).toBe('stopped');
+    expect(w.search.calls).toHaveLength(calls);
+    expect((await begin()).status).toBe('running');
+  });
+
+  it('only its owner or an admin can stop it, and an unknown run is null', async () => {
+    const run = await begin();
+    await expect(cancelRun(env.DB, run.id, OTHER, 'member', NOW)).rejects.toMatchObject({ status: 403 });
+    expect((await cancelRun(env.DB, run.id, OTHER, 'admin', NOW)).run.status).toBe('stopped');
+    expect(await cancelRun(env.DB, 999, USER, 'member', NOW)).toBeNull();
+  });
+
+  it('a run is abandoned after 15 minutes without activity, not 15 minutes after it started', async () => {
+    const insert = (started, updated) => env.DB.prepare("INSERT INTO search_runs (query_json, created_by, started, updated, status) VALUES ('{}', ?, ?, ?, 'running')")
+      .bind(USER, started, updated).run();
+    await insert(new Date(NOW - 60 * 60000).toISOString(), new Date(NOW - 2 * 60000).toISOString());
+    await expect(begin()).rejects.toMatchObject({ status: 409 });
+    await env.DB.prepare('DELETE FROM search_runs').run();
+    await insert(new Date(NOW - 60 * 60000).toISOString(), new Date(NOW - 20 * 60000).toISOString());
+    expect((await begin()).status).toBe('running');
+  });
+
+  it('two starts at once give one run and one clear refusal', async () => {
+    const results = await Promise.allSettled([begin(), begin()]);
+    expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
+    expect(results.find((r) => r.status === 'rejected').reason).toMatchObject({ status: 409 });
   });
 });

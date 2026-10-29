@@ -88,7 +88,7 @@ export function mount(root, ctx) {
   const results = h('div', { class: 'find-results' });
   const form = h('form', { class: 'find-form glass', onsubmit: startSearch },
     h('label', { class: 'field field-grow' }, 'What are you looking for?', query),
-    h('div', { class: 'fields' }, h('label', { class: 'field' }, 'From', from), h('label', { class: 'field' }, 'To', to), h('label', { class: 'field' }, 'Region', region)),
+    h('div', { class: 'fields' }, h('label', { class: 'field' }, 'From', from), h('label', { class: 'field' }, 'To', to), h('label', { class: 'field' }, 'Region, a hint for the search', region)),
     topicRow, h('div', { class: 'find-actions' }, startBtn, stopBtn));
   const settingsBox = h('details', { class: 'find-settings glass' });
 
@@ -186,6 +186,8 @@ export function mount(root, ctx) {
         paint();
       },
     });
+    // A run that stopped or failed here would stay "running" on the server and block the next search for a quarter of an hour.
+    if (!outcome.ok || outcome.stopped) ctx.api.post(`/api/search/${run.id}/cancel`, {});
     if (disposed) return;
     setBusy(false);
     if (!outcome.ok) status.textContent = `The search stopped. ${outcome.error}`;
@@ -294,6 +296,7 @@ export function mount(root, ctx) {
   return () => {
     disposed = true;
     controller?.abort();
+    if (running && run) ctx.api.post(`/api/search/${run.id}/cancel`, {});
     window.removeEventListener('radar:reauth', reload);
   };
 }

@@ -48,7 +48,7 @@ describe('progressText', () => {
 
 describe('FILTER_LABELS', () => {
   it('has a plain label for every reason a run can give', () => {
-    expect(Object.keys(FILTER_LABELS).sort()).toEqual(['cancelled', 'entertainment', 'no_date', 'online_only', 'past', 'rejected', 'unverified']);
+    expect(Object.keys(FILTER_LABELS).sort()).toEqual(['cancelled', 'entertainment', 'no_date', 'online_only', 'outside_dates', 'past', 'rejected', 'unverified']);
     for (const [reason, label] of Object.entries(FILTER_LABELS)) expect(label.length, reason).toBeGreaterThan(10);
   });
 });

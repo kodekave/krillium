@@ -7,6 +7,7 @@ export const FILTER_LABELS = {
   online_only: 'The event is online only.',
   entertainment: 'It looks like entertainment, not a business event.',
   no_date: 'The page gives no exact start date.',
+  outside_dates: 'The event is outside the dates you chose.',
   rejected: 'Your team rejected this event before.',
   unverified: 'The page text did not confirm the name or dates.',
 };

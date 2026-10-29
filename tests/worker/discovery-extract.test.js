@@ -128,7 +128,8 @@ describe('extractBatch verification', () => {
 
   it('malformed model output drops the whole batch with reasons and still reports usage', async () => {
     const pages = [page(), page({ url: 'https://luminik.io/x' })];
-    const { observations, dropped, usage } = await run(pages, 'Sorry, I cannot help with that.', { input: 900, output: 40 });
+    const { observations, dropped, usage, unreadable } = await run(pages, 'Sorry, I cannot help with that.', { input: 900, output: 40 });
+    expect(unreadable).toBe(true);
     expect(observations).toEqual([]);
     expect(dropped).toEqual(pages.map((p) => ({ url: p.url, reason: 'model answer was not valid JSON' })));
     expect(usage).toEqual({ input: 900, output: 40 });
@@ -150,6 +151,53 @@ describe('extractBatch verification', () => {
     const text = `${page().text} Our ERP and Supply Chain tracks.`;
     const { observations } = await run([page({ text })], [item()]);
     expect(observations[0].topicHits).toBe(3);
+  });
+});
+
+describe('date verification', () => {
+  const dated = async (quote, startDate) => {
+    const text = `SSOW Orlando 2027. ${quote}. Orlando.`;
+    const { observations, unreadable } = await run([page({ text })], [item({ startDate, endDate: null, quotes: { name: 'SSOW Orlando 2027', dates: quote, city: 'Orlando' } })]);
+    expect(unreadable).toBe(false);
+    return observations.length === 1;
+  };
+
+  it('does not accept a date the page never gave', async () => {
+    expect(await dated('Q1 2027', '2027-01-01')).toBe(false);
+    expect(await dated('1. Quartal 2027', '2027-01-01')).toBe(false);
+    expect(await dated('H2 2027', '2027-02-02')).toBe(false);
+    expect(await dated('March 2027, 9:00 - 17:00', '2027-03-09')).toBe(false);
+    expect(await dated('Spring 2027', '2027-03-20')).toBe(false);
+  });
+
+  it('does not guess between day-first and month-first', async () => {
+    expect(await dated('03/08/2027', '2027-03-08')).toBe(false);
+    expect(await dated('03/08/2027', '2027-08-03')).toBe(false);
+    expect(await dated('03/03/2027', '2027-03-03')).toBe(true);
+  });
+
+  it('accepts only the first day of a range as the start', async () => {
+    expect(await dated('8-11 March 2027', '2027-03-08')).toBe(true);
+    expect(await dated('8-11 March 2027', '2027-03-11')).toBe(false);
+    expect(await dated('28 February - 2 March 2027', '2027-02-28')).toBe(true);
+    expect(await dated('28 February - 2 March 2027', '2027-03-02')).toBe(false);
+  });
+
+  it('accepts unambiguous numeric and written forms', async () => {
+    expect(await dated('2027-03-08', '2027-03-08')).toBe(true);
+    expect(await dated('8.3.2027', '2027-03-08')).toBe(true);
+    expect(await dated('13/08/2027', '2027-08-13')).toBe(true);
+    expect(await dated('08/13/2027', '2027-08-13')).toBe(true);
+    expect(await dated('Mar 8 - 11, 2027', '2027-03-08')).toBe(true);
+    expect(await dated('March 8, 2027', '2027-03-08')).toBe(true);
+    expect(await dated('3rd of April 2027', '2027-04-03')).toBe(true);
+    expect(await dated('du 3 au 5 mars 2027', '2027-03-03')).toBe(true);
+    expect(await dated('17.-19. November 2026', '2026-11-17')).toBe(true);
+  });
+
+  it('needs the year in the quote and the right year', async () => {
+    expect(await dated('8-11 March', '2027-03-08')).toBe(false);
+    expect(await dated('8-11 March 2026', '2027-03-08')).toBe(false);
   });
 });
 

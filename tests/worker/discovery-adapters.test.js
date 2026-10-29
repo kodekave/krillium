@@ -13,13 +13,31 @@ const query = (over = {}) => ({
 const settings = (maxSearches = 12) => ({ maxSearches });
 
 describe('planSearches', () => {
-  it('plans the user query first and never more than maxSearches', () => {
+  const exaOnly = (plan) => plan.filter((s) => s.adapter === 'exa');
+
+  it('plans the user query first and never more than maxSearches Exa searches', () => {
     const plan = planSearches(query(), settings());
     expect(plan[0]).toEqual({ adapter: 'exa', query: 'shared services in europe' });
     for (const max of [1, 2, 3, 5, 12, 40]) {
-      expect(planSearches(query(), settings(max)).length, `max ${max}`).toBeLessThanOrEqual(max);
+      expect(exaOnly(planSearches(query(), settings(max))).length, `max ${max}`).toBeLessThanOrEqual(max);
     }
-    expect(planSearches(query(), settings(1))).toEqual([plan[0]]);
+    expect(exaOnly(planSearches(query(), settings(1)))).toEqual([plan[0]]);
+  });
+
+  it('feed searches cost no search budget, so topics keep all their slots', () => {
+    const many = query({ topics: ['procure to pay', 'order to cash', 'shared services', 'ERP', 'finance automation', 'supply chain', 'distribution'] });
+    const plan = planSearches(many, settings(12));
+    expect(exaOnly(plan)).toHaveLength(12);
+    expect(plan.filter((s) => s.adapter === 'confs')).toHaveLength(4);
+    expect(exaOnly(planSearches(query(), settings(12))).filter((s) => s.query.includes('supply chain'))).toHaveLength(2);
+  });
+
+  it('feed searches carry the dates and the words to look for', () => {
+    const feed = planSearches(query(), settings()).find((s) => s.adapter === 'confs');
+    expect(feed).toMatchObject({ from: '2026-11-01', to: '2027-06-30' });
+    expect(feed.terms).toEqual(expect.arrayContaining(['shared', 'services', 'europe', 'erp', 'supply', 'chain', 'procure']));
+    expect(feed.terms).not.toContain('in');
+    expect(feed.terms).not.toContain('events');
   });
 
   it('runs the user query once more on the aggregator sites for cross-checking', () => {
@@ -143,6 +161,26 @@ describe('createConfsFeed', () => {
     const observations = await feedOf(rows).feed.list({ adapter: 'confs', year: 2027, file: 'data' });
     expect(observations).toHaveLength(1);
     expect(observations[0].country).toBeNull();
+  });
+
+  it('keeps only events that match the words and the dates it was asked for', async () => {
+    const ask = (over) => feedOf(confsData).feed.list({ adapter: 'confs', year: 2027, file: 'data', ...over });
+    expect((await ask({ terms: ['asia'], from: '2027-01-01', to: '2027-12-31' })).map((o) => o.name)).toEqual(['AI Conf Asia']);
+    expect(await ask({ terms: ['asia'], from: '2027-02-01', to: '2027-12-31' })).toEqual([]);
+    expect(await ask({ terms: ['asia'], from: '2026-01-01', to: '2027-01-05' })).toEqual([]);
+    expect((await ask({ terms: ['data'] })).map((o) => o.name)).toEqual(['3rd International Conference on Artificial Intelligence and Data Science']);
+    expect((await ask({ terms: ['london'] })).map((o) => o.name)).toEqual(['TechEx Global']);
+  });
+
+  it('finds nothing when it has no words to look for, instead of listing every conference', async () => {
+    expect(await feedOf(confsData).feed.list({ adapter: 'confs', year: 2027, file: 'data', terms: [] })).toEqual([]);
+  });
+
+  it('returns at most 25 matches, earliest first', async () => {
+    const rows = Array.from({ length: 40 }, (_, i) => ({ ...confsData[0], name: `Asia Event ${i}`, url: `https://e${i}.example`, startDate: `2027-03-${String(40 - i).padStart(2, '0')}` }));
+    const observations = await feedOf(rows).feed.list({ adapter: 'confs', year: 2027, file: 'data', terms: ['asia'] });
+    expect(observations).toHaveLength(25);
+    expect(observations.map((o) => o.startDate)).toEqual([...observations.map((o) => o.startDate)].sort());
   });
 
   it('treats a missing year file as no events and any other failure as a SourceError', async () => {

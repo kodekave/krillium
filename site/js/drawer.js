@@ -8,6 +8,9 @@ const CHOICE_LABEL = { attend: 'Attend', watch: 'Watch', skip: 'Skip' };
 const TIER_PILL = { A: 'must-attend', B: 'consider' };
 const PERSONA = { economic_buyer: 'Economic buyer', champion: 'Champion', influencer: 'Influencer' };
 
+// replaceChildren() prints a null argument as the text "null", so optional blocks are dropped before it is called.
+const present = (...nodes) => nodes.filter(Boolean);
+
 const hostOf = (url) => {
   try {
     return new URL(url).hostname || url;
@@ -73,7 +76,7 @@ export function mountDrawer(ctx) {
     const cockpit = ctx.config.cockpitUrl && safeUrl(ctx.config.cockpitUrl);
     const score = h('span', { class: 'num big' }, String(Math.round(e.priority)));
     countUp(score, Math.round(e.priority));
-    panel.replaceChildren(
+    panel.replaceChildren(...present(
       closeBtn(),
       h('header', {}, h('span', { class: `pill pill-${e.status}` }, STATUS_LABEL[e.status]), h('h2', {}, e.name),
         h('p', { class: 'muted' }, [e.city, formatRange(e.startDate, e.endDate)].filter(Boolean).join(', ')),
@@ -87,8 +90,30 @@ export function mountDrawer(ctx) {
       h('section', {}, h('h3', {}, 'Sources'), h('ul', { class: 'plain' }, e.sources.filter((s) => safeUrl(s.url)).map((s) => h('li', {}, h('a', { href: s.url, target: '_blank', rel: 'noopener noreferrer' }, `${s.label}: ${hostOf(s.url)}`))))),
       e.history.length ? h('section', {}, h('h3', {}, 'History'), h('ul', { class: 'plain' }, e.history.map((x) => h('li', {}, h('span', { class: 'muted small' }, `${String(x.at).slice(0, 10)}  `), x.summary)))) : null,
       cockpit ? h('p', {}, h('a', { class: 'btn', href: cockpit, target: '_blank', rel: 'noopener noreferrer' }, 'Review leads in the cockpit')) : null,
+      e.autoAdded ? autoAddedSection(e) : null,
       decision,
-    );
+    ));
+  }
+
+  // Events found by search and added without a person's say-so can be removed from here, not only from the search results.
+  function autoAddedSection(e) {
+    const note = h('p', { class: 'muted small', role: 'status' });
+    const remove = h('button', { type: 'button', class: 'btn', onclick: async () => {
+      remove.disabled = true;
+      const res = await ctx.api.post(`/api/events/${encodeURIComponent(e.id)}/undo-auto-add`, {});
+      if (!res.ok) {
+        remove.disabled = false;
+        note.textContent = res.stale ? 'Cannot reach the service. Nothing was removed.' : (res.error ?? 'That did not work. Try again.');
+        return;
+      }
+      note.textContent = 'Removed. It will not come back.';
+      setTimeout(() => {
+        close();
+        window.dispatchEvent(new Event('hashchange')); // draw the current screen again without the event
+      }, 900);
+    } }, 'Remove this event');
+    return h('section', {}, h('h3', {}, 'Added by search'),
+      h('p', { class: 'muted small' }, 'Krillium added this event because three or more sites agree on it. Nobody has confirmed it yet.'), remove, note);
   }
 
   function drawDecision(box, e) {
@@ -105,9 +130,9 @@ export function mountDrawer(ctx) {
       save.disabled = false;
       status.textContent = res.ok ? `Saved: ${CHOICE_LABEL[choice].toLowerCase()}.` : res.stale ? 'Cannot reach the service. Your decision was not saved.' : `Not saved: ${res.error ?? 'try again'}.`;
     } }, 'Save decision');
-    box.replaceChildren(h('h3', {}, 'Your decision'),
+    box.replaceChildren(...present(h('h3', {}, 'Your decision'),
       e.myDecision ? h('p', { class: 'muted small' }, `Last saved: ${CHOICE_LABEL[e.myDecision.choice].toLowerCase()} on ${String(e.myDecision.at).slice(0, 10)}.`) : null,
-      h('div', { class: 'seg-row', role: 'group', 'aria-label': 'Decision' }, buttons), reason, h('div', { class: 'row' }, save, status));
+      h('div', { class: 'seg-row', role: 'group', 'aria-label': 'Decision' }, buttons), reason, h('div', { class: 'row' }, save, status)));
   }
 
   return { open, close };

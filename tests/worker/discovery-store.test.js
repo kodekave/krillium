@@ -2,7 +2,7 @@ import { env } from 'cloudflare:test';
 import { describe, it, expect, beforeEach } from 'vitest';
 import { buildGroup, cluster, rejectionKey } from '../../site/js/shared/discovery.js';
 import {
-  DiscoveryError, addSourcesToEvent, approveCandidate, listInbox, loadContext, reevaluate, rejectCandidate, saveGroup, undoAutoAdd,
+  DiscoveryError, addSourcesToEvent, approveCandidate, listInbox, loadContext, processGroups, reevaluate, rejectCandidate, saveGroup, undoAutoAdd,
 } from '../../worker/src/discovery/store.js';
 import { addEvent, addPerson, attend, resetData } from './helpers.js';
 
@@ -204,5 +204,92 @@ describe('tracked events and the inbox', () => {
     expect(items[0].sources.map((s) => s.domain).sort()).toEqual(['luminik.io', 'ssonetwork.com']);
     expect(items[0].sources[0]).toHaveProperty('quote');
     expect(items[0].suggested).toMatchObject({ public_names: 0, timing: 5 });
+  });
+});
+
+describe('two people acting at once', () => {
+  it('two approvals at once create one event and one clear refusal', async () => {
+    const { candidateId } = await saveGroup(env.DB, group(obs()), NOW);
+    const results = await Promise.allSettled([approveCandidate(env.DB, candidateId, USER, NOW), approveCandidate(env.DB, candidateId, 'other@example.test', NOW)]);
+    expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
+    expect(results.find((r) => r.status === 'rejected').reason).toMatchObject({ status: 409 });
+    expect(await count('events')).toBe(1);
+  });
+
+  it('a rejection racing an auto-add leaves one consistent outcome', async () => {
+    const { candidateId } = await saveGroup(env.DB, threeSites(), NOW);
+    const results = await Promise.allSettled([reevaluate(env.DB, candidateId, NOW), rejectCandidate(env.DB, candidateId, USER, NOW)]);
+    const row = await candidate(candidateId);
+    if (row.status === 'rejected') {
+      expect(await count('events')).toBe(0);
+      expect(results[1].status).toBe('fulfilled');
+    } else {
+      expect(row.status).toBe('auto_added');
+      expect(await count('events')).toBe(1);
+      expect(results[1].status).toBe('rejected');
+    }
+  });
+
+  it('a candidate someone else already claimed is refused, not handled twice', async () => {
+    const { candidateId } = await saveGroup(env.DB, group(obs()), NOW);
+    await env.DB.prepare("UPDATE candidates SET status = 'promoting' WHERE id = ?").bind(candidateId).run();
+    await expect(approveCandidate(env.DB, candidateId, USER, NOW)).rejects.toMatchObject({ status: 409 });
+    await expect(rejectCandidate(env.DB, candidateId, USER, NOW)).rejects.toMatchObject({ status: 409 });
+    expect(await count('events')).toBe(0);
+  });
+
+  it('a failed promotion gives the candidate back so it can be approved again', async () => {
+    const { candidateId } = await saveGroup(env.DB, group(obs()), NOW);
+    const failing = { prepare: (sql) => env.DB.prepare(sql), batch: async () => { throw new Error('boom'); } };
+    await expect(approveCandidate(failing, candidateId, USER, NOW)).rejects.toThrow('boom');
+    expect((await candidate(candidateId)).status).toBe('inbox');
+    expect((await approveCandidate(env.DB, candidateId, USER, NOW)).eventId).toBe('ssow-orlando-2027-03');
+  });
+
+  it('two writers saving the same new event end up with one candidate and one source', async () => {
+    const g = group(obs());
+    const [a, b] = await Promise.all([saveGroup(env.DB, g, NOW), saveGroup(env.DB, g, NOW)]);
+    expect(a.candidateId).toBe(b.candidateId);
+    expect(await count('candidates')).toBe(1);
+    expect(await count('candidate_sources')).toBe(1);
+  });
+});
+
+describe('processGroups', () => {
+  const other = (name, domain = 'ssonetwork.com') => obs({ name, city: 'Berlin', country: 'DE', sourceDomain: domain, url: `https://${domain}/${name.replace(/\W+/g, '-')}` });
+
+  it('saves every group and reports each outcome', async () => {
+    const inbox = group(other('Alpha Procurement Forum'));
+    const sure = group(...['a.com', 'b.com', 'c.com'].map((d) => other('Bravo Procurement Forum', d)));
+    const out = await processGroups(env.DB, [inbox, sure], NOW);
+    expect(out.map((r) => r.status)).toEqual(['inbox', 'auto_added']);
+    expect(out[0].reason).toBe('1 of 3 sites');
+    expect(out[1].eventId).toBe('bravo-procurement-forum-2027-03');
+    expect(await count('candidates')).toBe(2);
+    expect(await count('events')).toBe(1);
+  });
+
+  it('adds new evidence to a candidate found earlier and auto-adds on the third site', async () => {
+    const first = await processGroups(env.DB, [group(other('Alpha Procurement Forum', 'a.com'))], NOW);
+    await processGroups(env.DB, [group(other('Alpha Procurement Forum 2027', 'b.com'))], NOW);
+    const third = await processGroups(env.DB, [group(other('Alpha Procurement Forum', 'c.com'))], NOW);
+    expect(third[0]).toMatchObject({ status: 'auto_added', candidateId: first[0].candidateId });
+    expect(third[0].group.domains).toHaveLength(3);
+    expect(await count('candidates')).toBe(1);
+  });
+
+  it('reports an already handled candidate without reopening it', async () => {
+    const [{ candidateId }] = await processGroups(env.DB, [group(other('Alpha Procurement Forum'))], NOW);
+    await approveCandidate(env.DB, candidateId, USER, NOW);
+    const again = await processGroups(env.DB, [group(other('Alpha Procurement Forum', 'z.com'))], NOW);
+    expect(again[0]).toMatchObject({ status: 'approved', candidateId });
+    expect((await candidate(candidateId)).status).toBe('approved');
+  });
+
+  it('two runs finding the same new event at once both succeed with one candidate', async () => {
+    const g = group(other('Alpha Procurement Forum'));
+    const [a, b] = await Promise.all([processGroups(env.DB, [g], NOW), processGroups(env.DB, [g], NOW)]);
+    expect(a[0].candidateId).toBe(b[0].candidateId);
+    expect(await count('candidates')).toBe(1);
   });
 });

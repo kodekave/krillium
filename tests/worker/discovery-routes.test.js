@@ -45,7 +45,7 @@ describe('authentication and settings', () => {
     const handler = createHandler({ discovery: deps() });
     const routes = [
       ['POST', '/api/search'], ['GET', '/api/search/1'], ['POST', '/api/search/1/step'], ['GET', '/api/inbox'],
-      ['POST', '/api/inbox/1/approve'], ['POST', '/api/inbox/1/reject'], ['POST', '/api/events/e1/undo-auto-add'],
+      ['POST', '/api/search/1/cancel'], ['POST', '/api/inbox/1/approve'], ['POST', '/api/inbox/1/reject'], ['POST', '/api/events/e1/undo-auto-add'],
       ['GET', '/api/discovery/settings'], ['PUT', '/api/discovery/settings'],
     ];
     for (const [method, path] of routes) {
@@ -143,6 +143,19 @@ describe('running a search', () => {
 
     const fetched = await data(await api(handler, `/api/search/${run.id}`));
     expect(fetched.items).toEqual(stepped.items);
+  });
+
+  it('cancel stops a run so its owner can search again, and nobody else but an admin can cancel it', async () => {
+    const handler = createHandler({ discovery: deps() });
+    const { run } = await data(await api(handler, '/api/search', { method: 'POST', body: START }));
+    await addUser({ email: 'other@example.test', name: 'Other', role: 'member' });
+    const other = await tokenFor({ email: 'other@example.test', name: 'Other', role: 'member' });
+    expect((await api(handler, `/api/search/${run.id}/cancel`, { method: 'POST', body: {}, token: other })).status).toBe(403);
+    const stopped = await api(handler, `/api/search/${run.id}/cancel`, { method: 'POST', body: {} });
+    expect(stopped.status).toBe(200);
+    expect((await data(stopped)).run.status).toBe('stopped');
+    expect((await api(handler, '/api/search', { method: 'POST', body: START })).status).toBe(201);
+    expect((await api(handler, '/api/search/999/cancel', { method: 'POST', body: {} })).status).toBe(404);
   });
 
   it('returns 404 for an unknown run', async () => {

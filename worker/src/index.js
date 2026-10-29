@@ -4,7 +4,7 @@ import { error, json } from './http.js';
 import { defaultDeps } from './discovery/deps.js';
 import { ask } from './routes/ask.js';
 import {
-  approveInbox, getDiscoverySettings, getSearch, inbox, putDiscoverySettings, rejectInbox, startSearch, stepSearch, undoAutoAddRoute,
+  approveInbox, cancelSearch, getDiscoverySettings, getSearch, inbox, putDiscoverySettings, rejectInbox, startSearch, stepSearch, undoAutoAddRoute,
 } from './routes/discovery.js';
 import { eventDetail, feed, graph, icp, radar } from './routes/read.js';
 import { getPrefs, postDecision, putIcp, putPref } from './routes/write.js';
@@ -23,6 +23,7 @@ const ROUTES = [
   ['POST', /^\/api\/search$/, startSearch],
   ['GET', /^\/api\/search\/(\d+)$/, getSearch],
   ['POST', /^\/api\/search\/(\d+)\/step$/, stepSearch],
+  ['POST', /^\/api\/search\/(\d+)\/cancel$/, cancelSearch],
   ['GET', /^\/api\/inbox$/, inbox],
   ['POST', /^\/api\/inbox\/(\d+)\/approve$/, approveInbox],
   ['POST', /^\/api\/inbox\/(\d+)\/reject$/, rejectInbox],

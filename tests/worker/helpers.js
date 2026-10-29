@@ -135,6 +135,16 @@ export async function call(handler, path, { method = 'GET', token, origin, body 
   return handler(request, env);
 }
 
+// Counts the database statements a piece of code prepares, to hold it to the free plan's 50 queries per request.
+// A statement prepared for a batch counts too, which is the cautious reading of the limit.
+export function countingDb(real = env.DB) {
+  let n = 0;
+  return {
+    db: { prepare: (sql) => { n += 1; return real.prepare(sql); }, batch: (statements) => real.batch(statements) },
+    count: () => n,
+  };
+}
+
 // Discovery fakes. eventPage() describes an event on a page and registers what a model should say about it;
 // fakeSearch() returns pages; fakeModel() answers extraction requests for the pages it finds in the prompt.
 const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];

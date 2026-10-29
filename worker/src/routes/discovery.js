@@ -3,7 +3,7 @@ import { error, json, readJson } from '../http.js';
 import { missingSecrets } from '../discovery/deps.js';
 import { ModelError } from '../discovery/model.js';
 import { SourceError } from '../discovery/plan.js';
-import { getRun, startRun, stepRun } from '../discovery/run.js';
+import { cancelRun, getRun, startRun, stepRun } from '../discovery/run.js';
 import { SettingsError, getSettings, putSettings } from '../discovery/settings.js';
 import { DiscoveryError, approveCandidate, listInbox, rejectCandidate, undoAutoAdd } from '../discovery/store.js';
 
@@ -78,6 +78,12 @@ export const stepSearch = guarded(async ({ env, params, deps }) => {
   const unavailable = notSetUp(deps);
   if (unavailable) return unavailable;
   const result = await stepRun({ db: env.DB, runId: Number(params[0]), deps, settings: await getSettings(env.DB), now: Date.now() });
+  return result ? json(result) : error(404, 'search not found');
+});
+
+// Stopping needs no keys: it only ends the run, so it works even if a secret has since been removed.
+export const cancelSearch = guarded(async ({ env, params, user }) => {
+  const result = await cancelRun(env.DB, Number(params[0]), user.email, user.role, Date.now());
   return result ? json(result) : error(404, 'search not found');
 });
 

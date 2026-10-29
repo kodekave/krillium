@@ -47,14 +47,14 @@ function cityIdentity(x) {
   return lat === null ? folded : `${lat},${lon}`;
 }
 
-// Two different stated cities can still be one event when both name the same country; the group then carries
-// a "cities disagree" conflict. A missing city or country never rules a match out.
+// Two different stated cities are never one event: sibling events of one organiser in one country (Orlando and
+// Chicago) would otherwise merge. A missing city or country never rules a match out.
 export function locationCompatible(a, b) {
   const cityA = cityIdentity(a);
   const cityB = cityIdentity(b);
+  if (cityA && cityB) return cityA === cityB;
   const countryA = a?.country || null;
   const countryB = b?.country || null;
-  if (cityA && cityB) return cityA === cityB || Boolean(countryA && countryB && countryA === countryB);
   if (countryA && countryB) return countryA === countryB;
   return true;
 }
@@ -76,7 +76,26 @@ function isRejected(obs, rejected) {
   return [-1, 0, 1].some((offset) => rejected.has(rejectionKey(obs.name, isoDay((day + offset) * DAY))));
 }
 
+// One organisation under several domains (eventbrite.com, .co.uk, .de; lu.ma and luma.com) is one site.
+const BRAND_ALIASES = { lu: 'luma' };
+
 export const siteOf = (obs) => registrableDomain(`https://${obs.sourceDomain ?? ''}`) ?? registrableDomain(obs.url) ?? obs.sourceDomain ?? null;
+
+function siteKey(obs) {
+  const brand = (siteOf(obs) ?? '').split('.')[0];
+  return BRAND_ALIASES[brand] ?? brand;
+}
+
+// The first domain seen for each distinct site, in order.
+function distinctSites(observations) {
+  const byKey = new Map();
+  for (const obs of observations) {
+    const key = siteKey(obs);
+    const domain = siteOf(obs);
+    if (key && domain && !byKey.has(key)) byKey.set(key, domain);
+  }
+  return [...byKey.values()];
+}
 
 function mostCommon(values, tieBreak = () => 0) {
   const counts = new Map();
@@ -111,17 +130,21 @@ export function buildGroup(observations) {
     city: mostCommon(observations.map((o) => o.city)),
     country: mostCommon(observations.map((o) => o.country)),
     observations,
-    domains: [...new Set(observations.map(siteOf).filter(Boolean))],
+    domains: distinctSites(observations),
     conflict: problems.length ? problems.join('; ') : null,
   };
 }
 
-export function cluster(observations, { existing = [], rejected = new Set(), now }) {
+// An event is outside the chosen dates when it ends before they begin or starts after they end.
+const outsideWindow = (obs, window) =>
+  Boolean(window) && ((window.from && (obs.endDate ?? obs.startDate) < window.from) || (window.to && obs.startDate > window.to));
+
+export function cluster(observations, { existing = [], rejected = new Set(), now, window = null }) {
   const filtered = [];
   const tracked = new Map();
   const buckets = [];
   for (const obs of observations) {
-    const reason = filterReason(obs, now) ?? (isRejected(obs, rejected) ? 'rejected' : null);
+    const reason = filterReason(obs, now) ?? (outsideWindow(obs, window) ? 'outside_dates' : null) ?? (isRejected(obs, rejected) ? 'rejected' : null);
     if (reason) {
       filtered.push({ observation: obs, reason });
       continue;

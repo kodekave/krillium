@@ -1,4 +1,5 @@
 // Turns one search request into the list of searches a run will step through, and defines the error sources raise.
+import { fold } from '../../../site/js/shared/clean.js';
 import { AGGREGATOR_DOMAINS } from '../../../site/js/shared/discovery.js';
 
 export class SourceError extends Error {
@@ -22,9 +23,21 @@ function yearsIn(from, to) {
   return Array.from({ length: last - first + 1 }, (_, i) => first + i);
 }
 
-// Order matters when the budget is small: the user's own query and its aggregator pass come first, then the feeds
-// (cheap and independent of the search budget's topics), then topic searches, an aggregator and an open-web pass each.
-// Exa cannot combine include and exclude filters, so no search carries both.
+const STOP_WORDS = new Set([
+  'events', 'event', 'conference', 'conferences', 'summit', 'summits', 'about', 'this', 'next', 'the', 'and', 'for', 'with', 'from',
+  'into', 'that', 'year', 'autumn', 'spring', 'summer', 'winter',
+]);
+
+// The words a feed event must contain to count as relevant: those of the query, the topics and the region.
+function termsOf(q) {
+  const text = [q.query, ...(q.topics ?? []), q.region ?? ''].join(' ');
+  return [...new Set(fold(text).split(/[^a-z0-9]+/).filter((w) => w.length >= 3 && !STOP_WORDS.has(w)))];
+}
+
+// Exa searches are limited by maxSearches: the user's own query and its aggregator pass first, then topic searches, an
+// aggregator and an open-web pass each (Exa cannot combine include and exclude filters, so no search carries both).
+// Feed searches use no search service and cost nothing, so they do not count against the budget; each is told the
+// dates and words so it returns only relevant events.
 export function planSearches(q, settings) {
   const years = yearsIn(q.from, q.to);
   const place = q.region ? ` ${q.region}` : '';
@@ -32,7 +45,6 @@ export function planSearches(q, settings) {
     { adapter: 'exa', query: q.query },
     { adapter: 'exa', query: q.query, includeDomains: [...AGGREGATOR_DOMAINS] },
   ];
-  const feeds = years.flatMap((year) => CONFS_FILES.map((file) => ({ adapter: 'confs', file, year })));
   const topics = (q.topics ?? []).flatMap((topic) => {
     const text = `${topic} conference ${years.join(' ')}${place}`;
     return [
@@ -40,5 +52,7 @@ export function planSearches(q, settings) {
       { adapter: 'exa', query: text, excludeDomains: [...AGGREGATOR_DOMAINS] },
     ];
   });
-  return [...own, ...feeds, ...topics].slice(0, settings.maxSearches);
+  const terms = termsOf(q);
+  const feeds = years.flatMap((year) => CONFS_FILES.map((file) => ({ adapter: 'confs', file, year, from: q.from, to: q.to, terms })));
+  return [...[...own, ...topics].slice(0, settings.maxSearches), ...feeds];
 }
