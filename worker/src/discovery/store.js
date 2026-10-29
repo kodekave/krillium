@@ -138,8 +138,10 @@ export async function reevaluate(db, candidateId, now) {
     .prepare('UPDATE candidates SET start_date = ?, end_date = ?, city = ?, country = ?, lat = ?, lon = ?, conflict = ?, last_seen = ? WHERE id = ?')
     .bind(group.startDate, group.endDate, group.city, group.country, lat, lon, group.conflict, iso(now), candidateId)
     .run();
-  if (decide(group, now).action !== 'auto_add') return { status: 'inbox' };
-  return { status: 'auto_added', eventId: await promote(db, candidate, group, { auto: true, user: 'discovery', now }) };
+  const verdict = decide(group, now);
+  if (verdict.action !== 'auto_add') return { status: 'inbox', reason: verdict.reason, group };
+  const eventId = await promote(db, candidate, group, { auto: true, user: 'discovery', now });
+  return { status: 'auto_added', eventId, reason: verdict.reason, group };
 }
 
 // A tracked event keeps one event row; a newly found page only adds a source link. No change is logged:

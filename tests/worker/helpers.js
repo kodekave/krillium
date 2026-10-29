@@ -134,3 +134,51 @@ export async function call(handler, path, { method = 'GET', token, origin, body 
   });
   return handler(request, env);
 }
+
+// Discovery fakes. eventPage() describes an event on a page and registers what a model should say about it;
+// fakeSearch() returns pages; fakeModel() answers extraction requests for the pages it finds in the prompt.
+const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+const eventRegistry = new Map();
+
+export function eventPage(url, spec) {
+  const e = { organiser: 'SSON', country: 'United States', cancelled: false, badDate: false, endDate: null, ...spec };
+  const [year, month, day] = e.startDate.split('-').map(Number);
+  const dateText = `${day} ${MONTH_NAMES[month - 1]} ${year}`;
+  eventRegistry.set(url, { ...e, dateText });
+  return { url, title: e.name, adapter: 'exa', text: `${e.name}. ${e.city}. ${dateText}. Organised by ${e.organiser}.` };
+}
+
+export function fakeSearch(resolve = []) {
+  const calls = [];
+  return {
+    calls,
+    async search(spec) {
+      calls.push(spec);
+      const result = typeof resolve === 'function' ? resolve(spec, calls.length) : resolve;
+      if (result instanceof Error) throw result;
+      return result;
+    },
+  };
+}
+
+export function fakeModel({ throws } = {}) {
+  const calls = [];
+  return {
+    calls,
+    async extract(request) {
+      calls.push(request);
+      if (throws) throw throws;
+      const items = [...request.user.matchAll(/<page id="(\d+)">\nURL: (\S+)/g)].flatMap(([, id, url]) => {
+        const e = eventRegistry.get(url);
+        if (!e) return [];
+        // badDate states a start date in the wrong month, which its own quote cannot support.
+        const startDate = e.badDate ? e.startDate.replace(/-(\d\d)-/, (_, mm) => `-${String((Number(mm) % 12) + 1).padStart(2, '0')}-`) : e.startDate;
+        return [{
+          page: Number(id), name: e.name, organiser: e.organiser, startDate, endDate: e.endDate, city: e.city, country: e.country,
+          online: false, cancelled: e.cancelled, quotes: { name: e.name, dates: e.dateText, city: e.city },
+        }];
+      });
+      return { text: JSON.stringify(items), usage: { input: 1000, output: 200 } };
+    },
+  };
+}
