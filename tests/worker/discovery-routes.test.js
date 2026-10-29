@@ -65,6 +65,17 @@ describe('authentication and settings', () => {
     expect((await data(await api(handler, '/api/discovery/settings'))).runCapUsd).toBe(1);
   });
 
+  it('the settings response lists the missing secrets so the page can say so before a search', async () => {
+    expect((await data(await api(createHandler({ discovery: deps() }), '/api/discovery/settings'))).missing).toEqual([]);
+    expect((await data(await api(createHandler(), '/api/discovery/settings'))).missing).toEqual(['EXA_API_KEY', 'ANTHROPIC_API_KEY']);
+    expect((await data(await api(createHandler({ discovery: deps({ pages: null }) }), '/api/discovery/settings'))).missing).toEqual(['EXA_API_KEY']);
+  });
+
+  it('a saved settings response does not carry the missing list', async () => {
+    const saved = await api(createHandler({ discovery: deps() }), '/api/discovery/settings', { method: 'PUT', token: admin, body: { maxPages: 60 } });
+    expect(await data(saved)).not.toHaveProperty('missing');
+  });
+
   it('rejects invalid settings with the reasons', async () => {
     const handler = createHandler({ discovery: deps() });
     const response = await api(handler, '/api/discovery/settings', { method: 'PUT', token: admin, body: { runCapUsd: -5, bogus: 1 } });

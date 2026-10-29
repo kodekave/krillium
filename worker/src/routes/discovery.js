@@ -96,7 +96,8 @@ export const undoAutoAddRoute = guarded(async ({ env, params, user }) => {
   return json({});
 });
 
-export const getDiscoverySettings = guarded(async ({ env }) => json(await getSettings(env.DB)));
+// The missing list lets the page say "not set up" before anyone runs a search. It is not a setting and is not saved.
+export const getDiscoverySettings = guarded(async ({ env, deps }) => json({ ...(await getSettings(env.DB)), missing: missingSecrets(deps) }));
 
 export const putDiscoverySettings = guarded(async ({ request, env, user }) => {
   if (user.role !== 'admin') return error(403, 'only an admin can change discovery settings');
