@@ -55,6 +55,8 @@ describe('countryCode', () => {
     expect(countryCode('USA')).toBe('US');
     expect(countryCode('UK')).toBe('GB');
     expect(countryCode('Türkiye')).toBe('TR');
+    expect(countryCode('U.S.A.')).toBe('US');
+    expect(countryCode('U.K.')).toBe('GB');
   });
 
   it('gives null for unknown or empty input', () => {

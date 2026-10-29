@@ -1,0 +1,29 @@
+{
+  "requestId": "fixture-request-1",
+  "results": [
+    {
+      "id": "https://www.ssonetwork.com/events-ssoweek",
+      "title": "SSOW Orlando 2027 | Shared Services & Outsourcing Week",
+      "url": "https://www.ssonetwork.com/events-ssoweek",
+      "publishedDate": "2026-09-14T00:00:00.000Z",
+      "author": null,
+      "text": "SSOW Orlando 2027. Shared Services & Outsourcing Week, Orlando, Florida. 8-11 March 2027."
+    },
+    {
+      "id": "https://www.10times.com/ssow-orlando",
+      "title": "SSOW Orlando 2027 - 10times",
+      "url": "https://www.10times.com/ssow-orlando",
+      "publishedDate": null,
+      "author": null,
+      "text": "Shared Services and Outsourcing Week Orlando. Mar 8 - 11, 2027. Orlando, USA."
+    },
+    {
+      "id": "https://example.test/empty",
+      "title": "A page with no readable text",
+      "url": "https://example.test/empty",
+      "publishedDate": null,
+      "author": null,
+      "text": "   "
+    }
+  ]
+}

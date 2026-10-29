@@ -98,5 +98,5 @@ export function countryCode(value) {
   if (!text) return null;
   const upper = text.toUpperCase();
   if (/^[A-Z]{2}$/.test(upper) && Object.hasOwn(COUNTRY_NAMES, upper)) return upper;
-  return CODE_BY_NAME.get(fold(text)) ?? null;
+  return CODE_BY_NAME.get(fold(text).replace(/\./g, '')) ?? null; // "U.S.A." and "U.K." as the open feeds write them
 }
