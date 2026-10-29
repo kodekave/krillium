@@ -1,6 +1,6 @@
 # Krillium event discovery: design
 
-Status: approved in conversation on 2026-10-29, awaiting written-spec review. Extends stage 2 of `2026-10-29-gtm-radar-design.md` (section 8, "new-event discovery").
+Status: approved in conversation on 2026-10-29; plan in `docs/superpowers/plans/2026-10-29-event-discovery.md`. Extends stage 2 of `2026-10-29-gtm-radar-design.md` (section 8, "new-event discovery").
 
 ## 1. Goal
 
@@ -26,7 +26,7 @@ No large B2B aggregator offers a free search API. Eventbrite closed public event
 
 ## 4. Flow
 
-1. The user opens "Find events" (or Cmd+K) and enters a query with filters: date range (default next 12 months), region, topics (default: the ICP's topics).
+1. The user opens "Find events" (or Cmd+K) and enters a query with filters: date range (default next 12 months), region, topics (default: the saved topic list).
 2. `POST /api/search` creates a `search_runs` row and plans a handful of searches per source.
 3. The page calls `POST /api/search/:id/step` repeatedly. Each step does a small slice (at most 3 outside calls) and returns progress.
 4. For each search result: extract a candidate (section 7), normalise, cluster (section 5), filter, decide.
@@ -34,7 +34,7 @@ No large B2B aggregator offers a free search API. Eventbrite closed public event
 
 ## 5. Cross-check and decision rules
 
-- **Cluster key:** normalised name tokens (lower case, accents folded, years and common words such as "annual" and "summit" removed), start date within 1 day, and city or country. Names match when their token sets have a Jaccard overlap of at least 0.6 after normalisation, not on exact equality.
+- **Cluster key:** normalised name tokens (lower case, accents folded, years and common words such as "annual" and "summit" removed), start dates within 60 days of each other (the same edition), and a compatible city or country. Observations more than 60 days apart are different editions. Names match when their token sets have a Jaccard overlap of at least 0.6 after normalisation, not on exact equality.
 - **Existing events first:** a candidate that matches a tracked event adds a source to that event and creates nothing new.
 - **Distinct sites:** counted by registrable domain, so two subdomains of one site count once.
 - **Agreement:** all sources in a cluster must agree on start date (within 1 day) and on city or, failing that, country. A disagreement sets `conflict` and forces the inbox. A source that does not state a field (for example no city) does not disagree, but at least one source in the cluster must state a start date and a city or country for the cluster to be auto-added.
@@ -51,11 +51,12 @@ No large B2B aggregator offers a free search API. Eventbrite closed public event
 | `search_runs` | id, query_json, status, created_by, started, finished, planned, done, pages, model_calls, model_spend, note, error |
 | `candidates` | id, cluster_key, name, organiser, city, country, lat, lon, start_date, end_date, topic_score, status (`inbox`, `auto_added`, `approved`, `rejected`), conflict, event_id, first_seen, last_seen |
 | `candidate_sources` | id, candidate_id, domain, url, adapter, title, found_start, found_end, found_city, quote, fetched_at; unique on (candidate_id, url) |
-| `rejections` | name_key, start_date, by, at; primary key on (name_key, start_date) |
+| `rejections` | name_key, start_date, rejected_by, rejected_at; primary key on (name_key, start_date) |
 | `page_cache` | url_hash (primary key), url, fetched_at, text_hash, extracted_json. Holds no page text. |
 | `event_sources` | event_id, url, domain, adapter, added_at |
 | `events` (altered) | adds `origin TEXT DEFAULT 'import'` and `auto_added INTEGER DEFAULT 0` |
-| `settings` | key, value. Holds `discovery_paused`, `run_cap_usd`, `day_cap_usd`, `max_searches`, `max_pages`. |
+| `settings` | key, value (JSON). Holds `paused`, `runCapUsd`, `dayCapUsd`, `maxSearches`, `maxPages`, `topics` (the saved topic list; the ICP config has none) and the model prices `priceInPerMtok` and `priceOutPerMtok` (assumed Haiku-class, to be confirmed against current pricing). |
+| `run_items` | id, run_id, outcome (`auto_added`, `inbox`, `tracked`, `filtered`), candidate_id, event_id, name, url, start_date, city, reason, domains. Keeps every outcome of a run, including filtered items and why. |
 
 Writes that promote a candidate to an event run as one D1 batch, so a failed step never leaves a half-created event.
 
@@ -64,7 +65,7 @@ Writes that promote a candidate to an event run as one D1 batch, so a failed ste
 - **Adapter interface:** `search(query, filters) -> [{url, title, text, publishedAt?}]` for page sources, `list(filters) -> [candidate]` for structured feeds. Adapters live in `worker/src/discovery/adapters/`.
 - **Exa adapter:** one call per planned search, with contents, date filters and the aggregator and organiser domains as hints. Its text is the extraction input, so there is no third-party page fetching.
 - **Confs.tech adapter:** reads the open dataset and returns candidates directly. Counts as one source like any other.
-- **Extraction:** a Haiku-class model, given the first 3,000 characters of a page, returns strict JSON: name, organiser, start and end dates, city, country, online-only flag, cancelled flag, and for each of name, dates and city a short supporting quote.
+- **Extraction:** a Haiku-class model, given the first 3,000 characters of up to 5 pages per call (so a step stays within 3 outside calls), returns strict JSON for each page: name, organiser, start and end dates, city, country, online-only flag, cancelled flag, and for each of name, dates and city a short supporting quote.
 - **Verification:** each quote must appear in the page text (case and whitespace folded) and the field must be consistent with it. A field that fails is dropped. A candidate missing name or start date is dropped. URLs come only from search results, never from model output.
 - **Data kept:** facts and quotes of at most 200 characters. No page copies are stored.
 - **People are out of scope.** This feature extracts events only. Speaker and attendee extraction stays in the stage 2 live-page job.
@@ -79,14 +80,14 @@ Writes that promote a candidate to an event run as one D1 batch, so a failed ste
 | `GET /api/inbox` | Candidates with status `inbox`, with sources and conflicts. |
 | `POST /api/inbox/:id/approve` | Promote to an event (suggested score), status `approved`. |
 | `POST /api/inbox/:id/reject` | Mark rejected and record the rejection. |
-| `POST /api/events/:id/undo-auto-add` | Remove an auto-added event and record a rejection. |
+| `POST /api/events/:id/undo-auto-add` | Remove an auto-added event, record a rejection and leave a `removed` change. Refuses with 409 if anyone has recorded a decision on the event or attached people or companies to it. |
 | `GET` and `PUT /api/discovery/settings` | Caps and the pause switch. Admin only for `PUT`. |
 
 ## 9. Screens
 
 - **Find events panel:** query box, date, region and topic filters, live progress ("14 pages read, 6 matches").
 - **Results groups:** Auto-added (with undo), Needs review, Already tracked (new source chips), Filtered out (collapsed, with a reason per item).
-- **Inbox:** a nav item with a count badge. Each card shows name, dates, city, source chips that link out, the conflict flag, the suggested score breakdown, and Approve and Reject.
+- **Inbox:** a tab in the Find view, with the count badge on the Find nav item (two nav items would overflow the phone nav bar). Each card shows name, dates, city, source chips that link out, the conflict flag, the suggested score breakdown, and Approve and Reject.
 - **Map:** discovered events get a distinct ring until approved or confirmed by a later live check.
 - **Ask bar:** a "find events about X in Y" intent that opens the panel with the query filled in.
 - Empty, loading, error and budget-reached states are designed, in the existing brand style.
