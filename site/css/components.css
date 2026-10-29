@@ -60,7 +60,9 @@ tr[data-id]:hover td { background: var(--line); }
 .table-wrap { border: 1px solid var(--line); border-radius: var(--r-card); overflow-x: auto; background: var(--glass); }
 /* The operator's Workspaces screen */
 .workspaces-error { color: var(--danger); margin: 8px 0 0; }
-.row-actions { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
+/* A table cell must stay a table cell: the buttons sit inside it, right-aligned, instead of making the cell a flex box. */
+.row-actions { text-align: right; white-space: nowrap; }
+.row-actions .btn + .btn { margin-left: 8px; }
 .shared-keys-toggle { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text); }
 .table-wrap th:first-child, .table-wrap td:first-child { padding-left: 18px; }
 .link-btn { padding: 0; border: 0; background: none; color: var(--text); font: 500 14px var(--font-sans); text-align: left; cursor: pointer; }
