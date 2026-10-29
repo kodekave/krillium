@@ -1,4 +1,5 @@
 import { h, safeUrl } from '../dom.js';
+import { emptyState } from '../empty-state.js';
 import { daysUntil, formatRange } from '../format.js';
 
 const KIND_LABEL = { imported: 'Imported', lineup: 'Lineup', dates: 'Dates', new_event: 'New event' };
@@ -18,7 +19,7 @@ export function mount(root, ctx) {
     if (disposed) return;
     if (!radar.ok || !feed.ok) {
       if (radar.status === 401 || feed.status === 401) return;
-      comingUp.replaceChildren(h('div', { class: 'empty' }, h('strong', {}, 'The feed could not load'), h('button', { type: 'button', class: 'btn btn-primary', onclick: load }, 'Try again')));
+      comingUp.replaceChildren(emptyState({ art: 'load-error', title: 'The feed could not load', text: 'Check your connection and try again.', action: h('button', { type: 'button', class: 'btn btn-primary', onclick: load }, 'Try again') }));
       changes.replaceChildren();
       return;
     }
@@ -35,7 +36,7 @@ export function mount(root, ctx) {
       feed.data.length ? h('ul', { class: 'feed-list' }, feed.data.map((c) => h('li', {},
         h('span', { class: 'muted small feed-when' }, String(c.at).slice(0, 10)),
         h('span', { class: 'feed-body' }, c.eventId ? link(c.eventId, c.eventName ?? c.eventId) : null, h('span', {}, c.summary ?? c.kind), safeUrl(c.sourceUrl) ? h('a', { class: 'small', href: c.sourceUrl, target: '_blank', rel: 'noopener noreferrer' }, 'Source') : null),
-        h('span', { class: 'pill pill-watch' }, KIND_LABEL[c.kind] ?? c.kind)))) : h('div', { class: 'empty' }, h('strong', {}, 'Nothing has changed yet'), h('p', { class: 'muted' }, 'When an event page changes, it shows up here with its source.')));
+        h('span', { class: 'pill pill-watch' }, KIND_LABEL[c.kind] ?? c.kind)))) : emptyState({ art: 'no-changes', title: 'Nothing has changed yet', text: 'When an event page changes, it shows up here with its source.' }));
   }
 
   window.addEventListener('radar:reauth', load);

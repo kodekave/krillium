@@ -1,4 +1,5 @@
 import { h, s } from '../dom.js';
+import { emptyState } from '../empty-state.js';
 import { buildGraph } from '../graph-data.js';
 import { createSimulation } from '../force-layout.js';
 
@@ -113,12 +114,12 @@ export function mount(root, ctx) {
     if (!radar.ok || !graph.ok) {
       if (radar.status === 401 || graph.status === 401) return;
       message.hidden = false;
-      message.replaceChildren(h('strong', {}, 'The graph could not load'), h('p', { class: 'muted' }, 'Check your connection and try again.'), h('button', { type: 'button', class: 'btn btn-primary', onclick: load }, 'Try again'));
+      message.replaceChildren(emptyState({ art: 'load-error', title: 'The graph could not load', text: 'Check your connection and try again.', action: h('button', { type: 'button', class: 'btn btn-primary', onclick: load }, 'Try again') }));
       return;
     }
     if (!radar.data.length) {
       message.hidden = false;
-      message.replaceChildren(h('strong', {}, 'No events yet'), h('p', { class: 'muted' }, 'Import the case-study Sheet to see the graph.'));
+      message.replaceChildren(emptyState({ art: 'no-events', title: 'No events yet', text: 'Import the case-study Sheet to see the graph.' }));
       return;
     }
     data = { events: radar.data, accountsByEvent: graph.data.accountsByEvent };

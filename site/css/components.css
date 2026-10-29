@@ -188,3 +188,21 @@ tr[data-id]:hover td { background: var(--line); }
   .table-wrap .score { min-width: 0; width: 100%; }
   tr[data-id]:hover td { background: none; }
 }
+
+.mark-tail { fill: currentColor; }
+.mark-head { fill: var(--amber); }
+.brand-lockup { display: flex; align-items: center; gap: 12px; }
+.brand-lockup h1 { font-size: 28px; letter-spacing: -0.035em; }
+.signin-card .mark { color: var(--text); }
+.rail-mark .mark { display: block; }
+
+.empty-state { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; padding: 8px 0; color: var(--muted); }
+.empty-state .art { width: 150px; height: auto; margin-bottom: 4px; color: var(--muted); }
+.empty-state strong { color: var(--text); font-weight: 500; font-size: 15px; }
+.empty-state p { max-width: 44ch; }
+.empty-state .btn { margin-top: 6px; }
+.art .a-line { fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; }
+.art .a-dot { fill: currentColor; }
+.art .a-accent { color: var(--amber); }
+.art .a-dot.a-accent { fill: var(--amber); }
+.art .a-line.a-accent { stroke: var(--amber); }

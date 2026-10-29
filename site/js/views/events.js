@@ -1,4 +1,5 @@
 import { h } from '../dom.js';
+import { emptyState } from '../empty-state.js';
 import { formatRange } from '../format.js';
 import { filterEvents } from '../filters.js';
 
@@ -35,9 +36,10 @@ export function mount(root, ctx) {
     const list = filterEvents(events, { ...filters, minScore: filters.minScore === '' ? undefined : filters.minScore });
     count.textContent = `${list.length} of ${events.length} events, ranked by how many ICP buyers are publicly attached.`;
     if (!list.length) {
-      body.replaceChildren(h('div', { class: 'empty' }, h('strong', {}, events.length ? 'No events match these filters' : 'No events yet'),
-        events.length ? h('button', { type: 'button', class: 'btn', onclick: () => { Object.assign(filters, DEFAULTS); search.value = ''; bar.querySelectorAll('select').forEach((s) => { s.selectedIndex = 0; }); ctx.prefs?.setJson('filters', filters); render(); } }, 'Clear filters')
-          : h('p', { class: 'muted' }, 'Import the case-study Sheet to fill this table. DEPLOY.md lists the steps.')));
+      const clear = () => { Object.assign(filters, DEFAULTS); search.value = ''; bar.querySelectorAll('select').forEach((sel) => { sel.selectedIndex = 0; }); ctx.prefs?.setJson('filters', filters); render(); };
+      body.replaceChildren(events.length
+        ? emptyState({ art: 'no-matches', title: 'No events match these filters', text: 'Try a wider region or a lower priority.', action: h('button', { type: 'button', class: 'btn', onclick: clear }, 'Clear filters') })
+        : emptyState({ art: 'no-events', title: 'No events yet', text: 'Import the case-study Sheet to fill this table. DEPLOY.md lists the steps.' }));
       return;
     }
     body.replaceChildren(h('div', { class: 'table-wrap' }, h('table', {},
@@ -57,7 +59,7 @@ export function mount(root, ctx) {
     if (disposed) return;
     if (!result.ok) {
       if (result.status === 401) return;
-      body.replaceChildren(h('div', { class: 'empty' }, h('strong', {}, 'The events could not load'), h('p', { class: 'muted' }, result.stale ? 'The service is not reachable. Check your connection and try again.' : 'The service returned an error. Try again in a moment.'), h('button', { type: 'button', class: 'btn btn-primary', onclick: load }, 'Try again')));
+      body.replaceChildren(emptyState({ art: 'load-error', title: 'The events could not load', text: result.stale ? 'The service is not reachable. Check your connection and try again.' : 'The service returned an error. Try again in a moment.', action: h('button', { type: 'button', class: 'btn btn-primary', onclick: load }, 'Try again') }));
       return;
     }
     events = result.data;

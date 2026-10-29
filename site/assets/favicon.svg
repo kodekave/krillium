@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <style>
+    .t { fill: #1f4a39; }
+    .h { fill: #c27d08; }
+    @media (prefers-color-scheme: dark) { .t { fill: #86c3a9; } .h { fill: #f3b23e; } }
+  </style>
+  <circle class="h" cx="44.18" cy="15.18" r="12.18"/>
+  <circle class="t" cx="22.04" cy="19.6" r="8.85"/>
+  <circle class="t" cx="35.32" cy="41.74" r="7.31"/>
+  <circle class="t" cx="13.18" cy="43.95" r="5.53"/>
+  <circle class="t" cx="28.68" cy="57.24" r="3.76"/>
+</svg>

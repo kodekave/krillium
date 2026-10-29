@@ -1,4 +1,5 @@
 import { h } from '../dom.js';
+import { emptyState } from '../empty-state.js';
 import { applyEdit, createDraftStore, describeDraft, previewRanking, setDensityShare } from '../icp-draft.js';
 
 const STATUS_LABEL = { 'must-attend': 'Must-attend', consider: 'Consider', watch: 'Watch' };
@@ -116,7 +117,7 @@ export function mount(root, ctx) {
     if (disposed) return;
     if (!icp.ok || !radar.ok) {
       if (icp.status === 401 || radar.status === 401) return;
-      form.replaceChildren(h('div', { class: 'empty' }, h('strong', {}, 'The ICP settings could not load'), h('button', { type: 'button', class: 'btn btn-primary', onclick: load }, 'Try again')));
+      form.replaceChildren(emptyState({ art: 'load-error', title: 'The ICP settings could not load', text: 'Check your connection and try again.', action: h('button', { type: 'button', class: 'btn btn-primary', onclick: load }, 'Try again') }));
       return;
     }
     saved = icp.data;

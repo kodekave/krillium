@@ -1,4 +1,5 @@
 import { h } from '../dom.js';
+import { emptyState } from '../empty-state.js';
 import { daysUntil, formatRange, monthsSpan } from '../format.js';
 import { createMap } from '../map-canvas.js';
 import { dateWindow } from '../map-geometry.js';
@@ -129,13 +130,13 @@ export function mount(root, ctx) {
     if (!result.ok) {
       if (result.status === 401) return;
       message.hidden = false;
-      message.replaceChildren(h('strong', {}, 'The radar could not load'), h('p', { class: 'muted' }, result.stale ? 'The service is not reachable. Check your connection and try again.' : 'The service returned an error. Try again in a moment.'), h('button', { type: 'button', class: 'btn btn-primary', onclick: load }, 'Try again'));
+      message.replaceChildren(emptyState({ art: 'load-error', title: 'The radar could not load', text: result.stale ? 'The service is not reachable. Check your connection and try again.' : 'The service returned an error. Try again in a moment.', action: h('button', { type: 'button', class: 'btn btn-primary', onclick: load }, 'Try again') }));
       return;
     }
     events = result.data;
     if (!events.length) {
       message.hidden = false;
-      message.replaceChildren(h('strong', {}, 'No events yet'), h('p', { class: 'muted' }, 'Import the case-study Sheet to fill the radar. DEPLOY.md lists the steps.'));
+      message.replaceChildren(emptyState({ art: 'no-events', title: 'No events yet', text: 'Import the case-study Sheet to fill the radar. DEPLOY.md lists the steps.' }));
       return;
     }
     months = monthsSpan(events);
@@ -146,7 +147,7 @@ export function mount(root, ctx) {
       } catch {
         if (disposed) return;
         message.hidden = false;
-        message.replaceChildren(h('strong', {}, 'The map could not load'), h('p', { class: 'muted' }, 'The map files did not load. Check your connection and try again.'), h('button', { type: 'button', class: 'btn btn-primary', onclick: load }, 'Try again'));
+        message.replaceChildren(emptyState({ art: 'load-error', title: 'The map could not load', text: 'The map files did not load. Check your connection and try again.', action: h('button', { type: 'button', class: 'btn btn-primary', onclick: load }, 'Try again') }));
         renderSummary(events);
         renderRank(events);
         return;

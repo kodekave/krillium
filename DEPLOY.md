@@ -1,4 +1,4 @@
-# Deploying GTM Radar (stage 1)
+# Deploying Krillium (stage 1)
 
 The site is static files in `site/` (GitHub Pages). The data lives behind a Cloudflare Worker with a D1 database. Steps marked **you** involve your accounts or secrets: I do not run them, and secrets never go in files or chat.
 
@@ -78,6 +78,10 @@ npm test
 ```
 
 The dev seed uses the ten real public events with made-up people. Never import real leads into the local database you share.
+
+## Brand files
+
+The mark, favicon set, app icons and manifest are generated from one geometry file (`site/js/brand.js`). After changing it, run `node scripts/gen-brand.mjs` and commit the files in `site/assets/`. The product is named Krillium everywhere you can see; the folder, `package.json` and the Worker keep the working name `gtm-radar` so existing deploy names do not change.
 
 ## What is not in stage 1
 

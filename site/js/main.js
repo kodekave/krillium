@@ -2,6 +2,7 @@ import config from '../config.js';
 import { createApi } from './api.js';
 import { createSession, mountGoogleButton, sessionEndedMessage } from './auth.js';
 import { mountAsk } from './ask.js';
+import { markElement } from './brand.js';
 import { mountDrawer } from './drawer.js';
 import { prefersReducedMotion } from './motion.js';
 import { createPrefs } from './prefs.js';
@@ -58,15 +59,14 @@ addEventListener('keydown', (ev) => {
 
 function renderRail() {
   $('rail').innerHTML = `
-    <a class="rail-mark" href="#/radar" aria-label="GTM Radar home">
-      <svg viewBox="0 0 32 32" width="30" height="30" aria-hidden="true"><circle cx="16" cy="16" r="13" fill="none" stroke="currentColor" stroke-width="1.5" opacity=".5"/><circle cx="16" cy="16" r="7" fill="none" stroke="currentColor" stroke-width="1.5" opacity=".75"/><circle cx="16" cy="16" r="2.4" fill="var(--amber)"/></svg>
-    </a>
+    <a class="rail-mark" href="#/radar" aria-label="Krillium home"></a>
     <ul class="rail-list">${NAV.map((n) => `<li><a class="rail-link" data-route="${n.name}" href="#/${n.name}" aria-label="${n.label}" title="${n.label}">${svg(n.icon)}<span class="rail-label">${n.label}</span></a></li>`).join('')}</ul>
     <div class="rail-foot">
       <button class="rail-link" id="ask-open" type="button" aria-label="Ask the radar" title="Ask (Cmd or Ctrl K)">${svg('<circle cx="11" cy="11" r="6.5"/><path d="M16 16l4 4"/>')}</button>
       <button class="rail-link" id="theme-toggle" type="button" aria-label="Switch light and dark theme" title="Theme">${svg('<path d="M20 14.5A8 8 0 019.5 4 8 8 0 1020 14.5z"/>')}</button>
       <button class="rail-link" id="sign-out" type="button" aria-label="Sign out" title="Sign out">${svg('<path d="M9 5H6a1 1 0 00-1 1v12a1 1 0 001 1h3M14 8l4 4-4 4M18 12H9"/>')}</button>
     </div>`;
+  $('rail').querySelector('.rail-mark').append(markElement({ size: 30 }));
   $('ask-open').addEventListener('click', () => ask.open());
   $('theme-toggle').addEventListener('click', () => {
     const next = document.documentElement.dataset.theme === 'light' ? 'dark' : 'light';
@@ -134,6 +134,7 @@ api.onFresh(() => {
 
 applyTheme(readTheme());
 renderRail();
+$('signin-mark').append(markElement({ size: 40 }));
 document.querySelector('.skip-link')?.addEventListener('click', (ev) => {
   ev.preventDefault();
   $('main').focus();
