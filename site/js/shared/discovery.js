@@ -76,7 +76,7 @@ function isRejected(obs, rejected) {
   return [-1, 0, 1].some((offset) => rejected.has(rejectionKey(obs.name, isoDay((day + offset) * DAY))));
 }
 
-const siteOf = (obs) => registrableDomain(`https://${obs.sourceDomain ?? ''}`) ?? registrableDomain(obs.url) ?? obs.sourceDomain ?? null;
+export const siteOf = (obs) => registrableDomain(`https://${obs.sourceDomain ?? ''}`) ?? registrableDomain(obs.url) ?? obs.sourceDomain ?? null;
 
 function mostCommon(values, tieBreak = () => 0) {
   const counts = new Map();
