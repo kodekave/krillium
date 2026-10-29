@@ -1,6 +1,6 @@
 # Krillium event discovery: design
 
-Status: approved in conversation on 2026-10-29; plan in `docs/superpowers/plans/2026-10-29-event-discovery.md`. Extends stage 2 of `2026-10-29-gtm-radar-design.md` (section 8, "new-event discovery").
+Status: implemented on branch `event-discovery` (remote migration, secrets and first live search still to do); plan in `docs/superpowers/plans/2026-10-29-event-discovery.md`. Extends stage 2 of `2026-10-29-gtm-radar-design.md` (section 8, "new-event discovery").
 
 ## 1. Goal
 

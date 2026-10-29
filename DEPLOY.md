@@ -65,11 +65,29 @@ Running the import again with the same files changes nothing. If you correct the
 
 Push this repo to GitHub and set Settings, Pages, Source to GitHub Actions; `.github/workflows/pages.yml` publishes `site/`. All URLs are relative, so it works at `https://you.github.io/<repo>/`. To host it as a folder inside an existing Pages site instead, copy `site/` into that repo under the folder you want (for example `radar/`).
 
+## 8. Event discovery (you)
+
+The Find events screen searches the web and open event lists, cross-checks every match across sites, adds events listed on three or more agreeing sites, and puts the rest in a review inbox. It needs two keys. Both are Worker secrets: never put them in a file or in chat.
+
+```bash
+npx wrangler d1 migrations apply gtm-radar --remote
+npx wrangler deploy
+npx wrangler secret put EXA_API_KEY
+npx wrangler secret put ANTHROPIC_API_KEY
+```
+
+- **Exa** is the search service. Create an account and an API key at exa.ai. Its public price for search with page text is about $7 per 1,000 searches, and the free tier adds $10 of credit a month. Check their pricing page.
+- **Anthropic** reads the pages (`claude-haiku-5-5`, a small model). Create an API key in the Anthropic console with billing switched on.
+- Until both secrets exist, Find events says "Search is not set up yet" and nothing else breaks.
+- **Budgets.** A search stops at $0.50 and the team at $2 a day. An admin changes these, the topics and the model prices under Find events, Budget and topics. The model prices there are assumptions: confirm them against Anthropic's current pricing before relying on the caps. "Pause all searches" stops every search at once.
+- **What it never does.** It adds nothing from a single site, nothing whose sites disagree on dates or city, and nothing it cannot quote from the page. Auto-added events can be undone from the search results until someone has decided on them.
+- Cloudflare's free plan allows 10 ms of CPU per request. If searches fail with "Worker exceeded resource limits", the fix is the Workers Paid plan, $5 a month. Read per-request CPU time in the Cloudflare dashboard (Workers, `gtm-radar-api`, Metrics) after the first real search.
+
 ## Local development
 
 ```bash
 cp /dev/null .dev.vars   # then add SESSION_SECRET, GOOGLE_CLIENT_ID (any value) and ALLOWED_ORIGIN=http://localhost:8080
-npx wrangler d1 migrations apply gtm-radar --local
+npx wrangler d1 migrations apply gtm-radar --local   # run again after pulling: new migrations add tables
 node scripts/dev-seed.mjs > .wrangler/dev-seed.sql && npx wrangler d1 execute gtm-radar --local --file .wrangler/dev-seed.sql
 npm run dev:worker     # http://localhost:8787
 npm run dev:site       # http://localhost:8080
