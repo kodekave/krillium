@@ -136,3 +136,26 @@ Shared pure modules (`site/js/shared/discovery.js`: name normalisation, cluster 
 ## 15. Out of scope
 
 Scheduled and saved searches and alerts (stage 3), speaker and attendee extraction (stage 2 live checks), scraper vendors, PredictHQ, and any change to how lead scores are computed.
+
+## 16. Amendment (2026-10-29): who reads the pages
+
+One key should be enough to switch discovery on, so the Anthropic key became optional.
+
+- **Exa reads by default.** The Exa search asks for page text and a structured summary of each page (`contents.summary` with a JSON schema: `isEvent`, name, dates, city, country, `online`, `cancelled`, and the three quotes). The summary is the same shape the model used to answer in. Only `EXA_API_KEY` is needed.
+- **Claude reads when `ANTHROPIC_API_KEY` is set.** The prompt, the batches of 5 pages and the page cache of section 8 apply as before, and Exa is then not asked for summaries. Its answers are turned into the same per-page summaries.
+- **One check for both.** `extractPages` verifies every summary against the first 8,000 characters of its page with the rules of section 8. A page whose summary cannot be read is counted and noted, never taken for a page with no event.
+- **Spend.** A run's spend is the cost Exa reports (`costDollars.total`, or Exa's published prices when it is missing) plus Claude's cost at the saved prices. The caps of section 9 count both. The columns `model_calls` and `model_spend` keep their names: they now hold Exa searches and total spend.
+- **Settings.** `GET /api/discovery/settings` also returns `reader` (`exa` or `claude`) next to `missing`, which is now `["EXA_API_KEY"]` or empty.
+- **Unverified until the first live search:** the exact field names of Exa's summary response come from its documentation.
+
+## 17. Amendment (2026-10-29): sector profiles
+
+The search topics became sectors, so the tool can look beyond procurement (pharma, finance operations, manufacturing, banking and others).
+
+- **Sectors.** The settings row `sectors` holds up to 12 sectors, each `{ id, name, topics (1 to 8 phrases), enabled }`; the flat `topics` setting is gone. Five starter sectors ship as `DEFAULT_SECTORS` in `site/js/shared/sectors.js`, which also validates, cleans and interleaves them. An admin edits them in the ICP brain (own Save, `PUT /api/discovery/settings`).
+- **Search request.** `POST /api/search` takes `sectors: [ids]` (every switched-on sector by default; `[]` means the typed words only). The Worker keeps them in settings order and builds the topic list one topic per sector in turn, so a run with room for only five topics still reaches every sector. `topics` sent by an older page is ignored. The run stores both `topics` and `sectors` in `query_json`.
+- **Tagging.** An observation's `sectors` are the enabled sectors whose topics literally appear in its page text (`topicHits` counts distinct topics across all of them). A run for exactly one sector also marks everything it finds, pages and Confs.tech rows alike, with that sector. Groups carry the union (`buildGroup`), a candidate stores it in `candidates.sectors` and later sources add to it, and an event gets it in `events.sectors` when it is added or approved. A tracked event keeps its own tags.
+- **Migration 0003.** `events.sectors` and `candidates.sectors` (JSON list of ids, default `'[]'`); imported events are set to `["procurement"]`.
+- **Fill the map.** The page runs one search per ticked sector in turn (`driveFill`, query "<sector name> conferences and trade shows"), each to its end before the next. It stops at a budget cap, a pause or an error, and says why.
+- **Screens.** `/api/radar` and the event detail carry `sectors`. Radar and Events filter by sector (`all`, a sector id, or `none`); inbox cards and the drawer name the sectors.
+- **Aggregators.** The list grew from 11 to 15 sites (Trade Show News Network, AUMA, Eventzilla, Townscript), each checked live on 2026-10-29. Four more directories were left out because a bot check hid their pages, and one scientific-conference site because it looks like a predatory publisher. The user asked for 20 to 50, so this is a start.
