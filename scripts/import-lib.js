@@ -1,19 +1,10 @@
 // Pure CSV-to-SQL import of the case-study Sheet tabs. One statement per line (D1 exec requirement).
 import { classifyPersona, domainMatches, normaliseCompanyName } from '../site/js/shared/clean.js';
+import { coordsForCity } from '../site/js/shared/cities.js';
 import { DEFAULT_CONFIG } from '../site/js/shared/scoring.js';
 
 const VERIFIED = /^(verified|valid)$/i;
 const LAWFUL_BASIS = 'legitimate interest (B2B), public source';
-
-const CITY_COORDS = {
-  berlin: [52.52, 13.405],
-  washington: [38.9072, -77.0369],
-  orlando: [28.5383, -81.3792],
-  'las vegas': [36.1699, -115.1398],
-  'new york': [40.7128, -74.006],
-  estoril: [38.7057, -9.3978],
-  schaumburg: [42.0334, -88.0834],
-};
 
 export function parseCsv(text) {
   const rows = [];
@@ -76,8 +67,7 @@ function coordsFor(row) {
   const lat = num(row.lat);
   const lon = num(row.lon);
   if (lat !== null && lon !== null) return [lat, lon];
-  const key = fold(row.city).replace(/,.*$/, '').replace(/\s+dc$/, '');
-  return CITY_COORDS[key] ?? [null, null];
+  return coordsForCity(row.city);
 }
 
 function eventRole(raw, hasPerson) {
