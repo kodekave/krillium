@@ -3,12 +3,12 @@ main = "worker/src/index.js"
 compatibility_date = "2026-08-01"
 
 [vars]
-ALLOWED_ORIGIN = "http://localhost:8080"
+ALLOWED_ORIGIN = "https://kodekave.github.io"
 
 [[d1_databases]]
 binding = "DB"
 database_name = "gtm-radar"
-database_id = "local-dev-placeholder"
+database_id = "5ad95988-d346-4884-8150-0e02179b07c5"
 migrations_dir = "worker/migrations"
 
 [triggers]
