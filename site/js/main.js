@@ -11,6 +11,7 @@ import { createRouter } from './router.js';
 const ROUTES = {
   radar: () => import('./views/radar.js'),
   events: () => import('./views/events.js'),
+  find: () => import('./views/find.js'),
   icp: () => import('./views/icp.js'),
   graph: () => import('./views/graph.js'),
   feed: () => import('./views/feed.js'),
@@ -19,6 +20,7 @@ const ROUTES = {
 const NAV = [
   { name: 'radar', label: 'Radar', icon: '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4.5"/><path d="M12 12l6-6"/>' },
   { name: 'events', label: 'Events', icon: '<path d="M4 6h16M4 12h16M4 18h10"/>' },
+  { name: 'find', label: 'Find events', icon: '<circle cx="11" cy="11" r="6.5"/><path d="M16 16l4 4M11 8.5v5M8.5 11h5"/>' },
   { name: 'icp', label: 'ICP brain', icon: '<path d="M5 8h9M18 8h1M5 16h1M10 16h9"/><circle cx="16" cy="8" r="2"/><circle cx="8" cy="16" r="2"/>' },
   { name: 'graph', label: 'Graph', icon: '<circle cx="6" cy="7" r="2"/><circle cx="18" cy="6" r="2"/><circle cx="13" cy="17" r="2.4"/><path d="M7.7 8l4 7.2M16.4 7.4l-2.6 7.8M8 7h8"/>' },
   { name: 'feed', label: 'Feed', icon: '<path d="M5 6h14M5 11h14M5 16h8"/><circle cx="18" cy="17" r="1.6"/>' },
@@ -60,7 +62,7 @@ addEventListener('keydown', (ev) => {
 function renderRail() {
   $('rail').innerHTML = `
     <a class="rail-mark" href="#/radar" aria-label="Krillium home"></a>
-    <ul class="rail-list">${NAV.map((n) => `<li><a class="rail-link" data-route="${n.name}" href="#/${n.name}" aria-label="${n.label}" title="${n.label}">${svg(n.icon)}<span class="rail-label">${n.label}</span></a></li>`).join('')}</ul>
+    <ul class="rail-list">${NAV.map((n) => `<li><a class="rail-link" data-route="${n.name}" href="#/${n.name}" aria-label="${n.label}" title="${n.label}">${svg(n.icon)}<span class="rail-label">${n.label}</span>${n.name === 'find' ? '<span class="rail-badge" id="inbox-badge" hidden></span>' : ''}</a></li>`).join('')}</ul>
     <div class="rail-foot">
       <button class="rail-link" id="ask-open" type="button" aria-label="Ask the radar" title="Ask (Cmd or Ctrl K)">${svg('<circle cx="11" cy="11" r="6.5"/><path d="M16 16l4 4"/>')}</button>
       <button class="rail-link" id="theme-toggle" type="button" aria-label="Switch light and dark theme" title="Theme">${svg('<path d="M20 14.5A8 8 0 019.5 4 8 8 0 1020 14.5z"/>')}</button>
@@ -78,6 +80,25 @@ function renderRail() {
     showSignIn();
   });
 }
+
+// The number of events waiting for review, shown on the Find item. The Find view reports changes with a window event.
+function setInboxBadge(count) {
+  const badge = $('inbox-badge');
+  const link = document.querySelector('.rail-link[data-route="find"]');
+  if (!badge || !link) return;
+  badge.hidden = !count;
+  badge.textContent = count > 99 ? '99+' : String(count);
+  const label = count ? `Find events, ${count} waiting for review` : 'Find events';
+  link.setAttribute('aria-label', label);
+  link.title = label;
+}
+
+async function refreshInbox() {
+  const res = await api.get('/api/inbox');
+  if (res.ok) setInboxBadge(res.data.length);
+}
+
+addEventListener('radar:inbox', (ev) => setInboxBadge(ev.detail?.count ?? 0));
 
 function setActive(name) {
   document.querySelectorAll('.rail-link[data-route]').forEach((a) => {
@@ -108,6 +129,7 @@ function showSignIn(message) {
       prefs.load().then(() => {
         if (prefs.get('theme')) applyTheme(prefs.get('theme'));
         router.start();
+        refreshInbox();
       });
     },
     onError(text) {
@@ -145,4 +167,5 @@ if (session.getToken()) {
 }
 const router = createRouter({ root: $('main'), routes: ROUTES, ctx, onRoute: setActive });
 router.start();
-if (!session.getToken()) showSignIn();
+if (session.getToken()) refreshInbox();
+else showSignIn();

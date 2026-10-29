@@ -27,6 +27,9 @@
 .pin-consider .pin-dot { fill: var(--sage); }
 .pin-watch .pin-dot { fill: var(--dim); }
 .pin-ring { fill: none; stroke: var(--text); stroke-width: 1.5px; opacity: 0; }
+/* Found by search and not yet confirmed: a dashed ring that is always visible, and a softer dot. */
+.pin-discovered .pin-ring { stroke: var(--muted); stroke-dasharray: 3 3; opacity: 0.85; }
+.pin-discovered .pin-dot { fill-opacity: 0.6; }
 .pin:hover .pin-dot, .pin.is-active .pin-dot { transform: scale(1.18); }
 .pin:hover .pin-ring, .pin.is-active .pin-ring, .pin:focus-visible .pin-ring { opacity: 0.9; }
 .pin-pulse { fill: var(--amber); opacity: 0; transform-box: fill-box; transform-origin: center; animation: pulse 2.8s ease-out infinite; }

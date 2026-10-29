@@ -201,7 +201,7 @@ export function mount(root, ctx) {
     const body = h('article', { class: 'find-card glass' },
       h('h3', {}, item.name),
       h('p', { class: 'muted' }, [where(item), item.organiser].filter(Boolean).join(', ')),
-      item.conflict ? h('p', { class: 'find-conflict' }, `The sources disagree: ${item.conflict}.`) : h('p', { class: 'muted small' }, item.reason),
+      item.conflict ? h('p', { class: 'find-conflict' }, `${item.conflict[0].toUpperCase()}${item.conflict.slice(1)}.`) : h('p', { class: 'muted small' }, item.reason),
       h('div', { class: 'find-sources' }, item.sources.map((s) => (safeUrl(s.url)
         ? h('a', { class: 'chip', href: s.url, target: '_blank', rel: 'noopener noreferrer', title: s.quote ?? s.domain }, s.domain)
         : h('span', { class: 'chip' }, s.domain)))),

@@ -3,7 +3,7 @@ import { h } from './dom.js';
 import { formatRange } from './format.js';
 import { parseAsk } from './ask-parse.js';
 
-const SUGGESTIONS = ['Which events have the most Tier A buyers?', 'What changed this week?', 'Events in the next 60 days'];
+const SUGGESTIONS = ['Which events have the most Tier A buyers?', 'What changed this week?', 'Events in the next 60 days', 'Find events about shared services in Europe'];
 const STATUS_LABEL = { 'must-attend': 'Must-attend', consider: 'Consider', watch: 'Watch' };
 
 export function mountAsk(ctx) {
@@ -43,7 +43,12 @@ export function mountAsk(ctx) {
   async function run(text) {
     const parsed = parseAsk(text);
     if (!parsed) {
-      results.replaceChildren(h('p', { class: 'muted' }, 'I can answer questions about Tier A buyers, what changed this week, and events in a month, quarter or the next few weeks. Try one of the suggestions.'));
+      results.replaceChildren(h('p', { class: 'muted' }, 'I can answer questions about Tier A buyers, what changed this week, and events in a month, quarter or the next few weeks. Start with find to search for new events. Try one of the suggestions.'));
+      return;
+    }
+    if (parsed.intent === 'find_events') {
+      close();
+      location.hash = `#/find?q=${encodeURIComponent(parsed.params.query)}`;
       return;
     }
     results.replaceChildren(h('p', { class: 'muted' }, 'Looking…'));

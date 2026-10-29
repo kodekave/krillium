@@ -2,7 +2,7 @@ import { h, safeUrl } from '../dom.js';
 import { emptyState } from '../empty-state.js';
 import { daysUntil, formatRange } from '../format.js';
 
-const KIND_LABEL = { imported: 'Imported', lineup: 'Lineup', dates: 'Dates', new_event: 'New event' };
+const KIND_LABEL = { imported: 'Imported', lineup: 'Lineup', dates: 'Dates', new_event: 'New event', removed: 'Removed' };
 const STATUS_LABEL = { 'must-attend': 'Must-attend', consider: 'Consider', watch: 'Watch' };
 const COMING_UP_DAYS = 60;
 

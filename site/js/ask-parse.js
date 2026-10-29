@@ -38,7 +38,18 @@ function parseRange(t, now) {
   return null;
 }
 
+// "find events about X" starts a search for new events. It only applies to text that begins with the verb, and a verb
+// with nothing after it asks for nothing, so it does not fall through to the other intents.
+const FIND_VERB = /^\s*(?:find|search(?:\s+for)?|discover|look\s+for)\b\s*(.*)$/i;
+const FIND_FILLER = /^(?:events?(?:\s+|$))?(?:(?:about|on|for|in|around)(?:\s+|$))?/i;
+const MAX_QUERY = 200;
+
 export function parseAsk(text, now = Date.now()) {
+  const found = FIND_VERB.exec(String(text ?? ''));
+  if (found) {
+    const query = found[1].replace(FIND_FILLER, '').trim().slice(0, MAX_QUERY);
+    return query ? { intent: 'find_events', params: { query } } : null;
+  }
   const t = fold(text);
   if (!t) return null;
   const range = parseRange(t, now);

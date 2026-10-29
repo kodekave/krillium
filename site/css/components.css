@@ -206,3 +206,34 @@ tr[data-id]:hover td { background: var(--line); }
 .art .a-accent { color: var(--amber); }
 .art .a-dot.a-accent { fill: var(--amber); }
 .art .a-line.a-accent { stroke: var(--amber); }
+
+/* Find events */
+.find-tabs { display: flex; gap: 6px; margin: 4px 0 18px; border-bottom: 1px solid var(--line); }
+.find-tab { padding: 10px 14px; border: 0; border-bottom: 2px solid transparent; background: none; color: var(--muted); font: 500 14px var(--font-sans); cursor: pointer; }
+.find-tab:hover { color: var(--text); }
+.find-tab[aria-selected="true"] { color: var(--text); border-bottom-color: var(--amber); }
+.find-form { display: flex; flex-direction: column; gap: 14px; max-width: 760px; padding: 18px; border: 1px solid var(--line); border-radius: var(--r-card); }
+.find-form .field-grow { flex: none; }
+.find-topics { display: flex; flex-wrap: wrap; gap: 8px; }
+.find-topics .chip[aria-pressed="true"] { background: color-mix(in srgb, var(--moss) 40%, transparent); border-color: var(--sage); }
+.find-topics .chip[aria-pressed="false"] { color: var(--muted); border-style: dashed; }
+.find-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.find-actions .btn[hidden] { display: none; }
+.find-status { max-width: 760px; min-height: 1.4em; margin: 14px 0 6px; }
+.find-results { max-width: 760px; }
+.find-group { margin: 22px 0; }
+.find-group h2 { margin-bottom: 10px; }
+.find-group .feed-list li { grid-template-columns: 1fr auto; }
+.find-group .btn { margin-top: 12px; }
+.find-group .feed-list .btn { margin-top: 0; }
+.find-filtered summary { cursor: pointer; color: var(--muted); font-weight: 600; }
+.find-filtered .feed-list { margin-top: 10px; }
+.find-settings { max-width: 760px; margin-top: 26px; padding: 14px 18px; border: 1px solid var(--line); border-radius: var(--r-card); }
+.find-settings summary { cursor: pointer; font-weight: 600; }
+.find-settings .fields { margin-bottom: 12px; }
+.find-inbox { display: grid; gap: 14px; max-width: 760px; }
+.find-card { display: flex; flex-direction: column; gap: 8px; padding: 18px; border: 1px solid var(--line); border-radius: var(--r-card); }
+.find-card h3, .find-card p { margin: 0; }
+.find-conflict { color: var(--amber); }
+.find-sources { display: flex; flex-wrap: wrap; gap: 8px; }
+.find-sources a.chip { text-decoration: none; }

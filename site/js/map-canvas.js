@@ -162,8 +162,9 @@ export async function createMap(container, { bases, reducedMotion, onSelect, onH
         const dy = fan * Math.sin(angle);
         const r = pinRadius(e.priority);
         const aria = `${e.name}, ${e.status}, priority ${Math.round(e.priority)}`;
-        const node = s('g', { class: `pin pin-${e.status}`, tabindex: 0, role: 'button', 'aria-label': aria, 'data-id': e.id },
-          e.status === 'must-attend' ? s('circle', { class: 'pin-pulse', cx: dx, cy: dy, r }) : null,
+        const found = e.origin === 'discovered';
+        const node = s('g', { class: `pin pin-${e.status}${found ? ' pin-discovered' : ''}`, tabindex: 0, role: 'button', 'aria-label': found ? `${aria}, found by search` : aria, 'data-id': e.id },
+          e.status === 'must-attend' && !found ? s('circle', { class: 'pin-pulse', cx: dx, cy: dy, r }) : null,
           s('circle', { class: 'pin-ring', cx: dx, cy: dy, r: r + 4 }),
           s('circle', { class: 'pin-dot', cx: dx, cy: dy, r }),
         );
