@@ -42,6 +42,7 @@ export const daysAgo = (n) => new Date(Date.now() - n * 86400000).toISOString();
 
 export async function resetData() {
   for (const table of [
+    'run_items', 'candidate_sources', 'candidates', 'search_runs', 'rejections', 'page_cache', 'event_sources', 'settings',
     'decisions', 'changes', 'event_people', 'event_companies', 'signals', 'people', 'companies',
     'events', 'prefs', 'users', 'icp_config', 'runs', 'calendar_tokens',
   ]) {
